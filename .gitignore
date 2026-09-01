@@ -1,0 +1,49 @@
+# Python cache / bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+/.venv/
+**/.venv/
+**/venv/
+
+# Environment files (secrets)
+.env
+.env.*
+!.env.example
+
+# Local app state / generated caches
+.active_document.json
+.triple_cache.json
+.document_chunks.json
+kg_app/state/.active_document.json
+kg_app/state/.document_chunks.json
+
+# Root-level PDFs used only for local upload tests
+/*.pdf
+
+# Logs / local databases / temp files
+*.log
+*.sqlite3
+*.db
+*.neo4j
+*.tmp
+*.temp
+*.bak
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

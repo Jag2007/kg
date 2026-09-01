@@ -1,0 +1,15 @@
+spacy
+groq
+python-dotenv
+fastapi
+uvicorn
+pymupdf
+pypdf
+python-multipart
+torch>=2.2.0
+sentence-transformers>=2.7.0
+transformers>=4.38.0
+pymongo
+dnspython
+requests
+openai
