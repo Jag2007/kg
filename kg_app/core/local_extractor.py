@@ -270,6 +270,63 @@ def _triples_for_verb(verb, sentence_entities, last_subject: str) -> list[dict]:
     return triples
 
 
+def _appositive_triples(sent, sentence_entities) -> list[dict]:
+    """'Maya Rao, the founder of Helix Labs, ...' -> Maya Rao FOUNDER_OF Helix Labs."""
+    triples = []
+    for token in sent:
+        if token.dep_ != "appos":
+            continue
+        head_name = sentence_entities.of(token.head)
+        if not head_name:
+            continue
+        role = token.lemma_.lower()
+        linked = False
+        for prep in token.children:
+            if prep.dep_ != "prep":
+                continue
+            for pobj in prep.children:
+                if pobj.dep_ == "pobj":
+                    target = sentence_entities.of(pobj)
+                    if target:
+                        triples.append({
+                            "subject": head_name,
+                            "relation": f"{role.upper()}_{prep.text.upper()}",
+                            "object": target,
+                            "confidence": 0.78,
+                        })
+                        linked = True
+        if not linked:
+            target = sentence_entities.of(token)
+            if target and target.lower() != head_name.lower():
+                triples.append({"subject": head_name, "relation": "IS_A", "object": target, "confidence": 0.7})
+    return triples
+
+
+def _noun_prep_triples(sent, sentence_entities) -> list[dict]:
+    """'the capital of France' / 'the CEO of Helix' -> role relations between named things."""
+    triples = []
+    for token in sent:
+        if token.dep_ != "prep" or token.head.pos_ not in {"NOUN", "PROPN"}:
+            continue
+        head = token.head
+        if head.lower_ not in ROLE_WORDS:
+            continue
+        owner = head.head if head.dep_ in {"attr", "appos"} else None
+        for pobj in token.children:
+            if pobj.dep_ != "pobj" or owner is None:
+                continue
+            subject = sentence_entities.of(owner) if owner.pos_ in {"NOUN", "PROPN"} else ""
+            if not subject:
+                continue
+            triples.append({
+                "subject": subject,
+                "relation": f"{head.text.upper()}_{token.text.upper()}",
+                "object": sentence_entities.of(pobj),
+                "confidence": 0.7,
+            })
+    return [t for t in triples if t["object"]]
+
+
 def extract_chunk_knowledge(text: str) -> dict:
     """Return {'triples': [...], 'entities': [...]} for one chunk of text."""
     source = str(text or "").strip()
@@ -295,6 +352,8 @@ def extract_chunk_knowledge(text: str) -> dict:
             is_predicate = token.pos_ == "VERB" or token.lemma_ == "be"
             if is_predicate:
                 sentence_triples.extend(_triples_for_verb(token, sentence_entities, last_subject))
+        sentence_triples.extend(_appositive_triples(sent, sentence_entities))
+        sentence_triples.extend(_noun_prep_triples(sent, sentence_entities))
 
         for triple in sentence_triples:
             triple["sentence"] = sent.text.strip()[:400]
