@@ -1,8 +1,14 @@
 """
 Graph storage for the knowledge graph.
 
-EmbeddedGraphStore keeps the graph in a JSON file on disk, so no external
-database is needed. The interface is small so other backends can be added.
+Two interchangeable backends share one interface:
+
+* Neo4jGraphStore    - Neo4j (Community edition works) queried with Cypher.
+* EmbeddedGraphStore - a JSON file on disk; no external services needed.
+
+`GraphStore()` picks the backend from KG_GRAPH_BACKEND (auto | neo4j | embedded).
+In auto mode Neo4j is used when NEO4J_URI is set and reachable, otherwise the
+embedded store is used so the app keeps working (e.g. on a free Render instance).
 
 Data model (both backends):
     Document  -- one per uploaded PDF
@@ -349,11 +355,222 @@ class EmbeddedGraphStore(BaseGraphStore):
         return dict(self._read()["mentions"].get(document_id, {}))
 
 
+class Neo4jGraphStore(BaseGraphStore):
+    """Neo4j backend. Relations are stored as typed relationships between Entity nodes."""
+
+    backend = "neo4j"
+
+    def __init__(self, uri: str | None = None, user: str | None = None, password: str | None = None):
+        from neo4j import GraphDatabase
+
+        self.uri = uri or os.environ.get("NEO4J_URI", "bolt://localhost:7687")
+        self.database = os.environ.get("NEO4J_DATABASE", "neo4j")
+        self.driver = GraphDatabase.driver(
+            self.uri,
+            auth=(user or os.environ.get("NEO4J_USER", "neo4j"), password or os.environ.get("NEO4J_PASSWORD", "")),
+            connection_timeout=5,
+        )
+        self.driver.verify_connectivity()
+        self._triple_cache: dict[str, list[dict]] = {}
+        self._ensure_schema()
+
+    def _run(self, cypher: str, **params) -> list[dict]:
+        records, _, _ = self.driver.execute_query(cypher, params, database_=self.database)
+        return [record.data() for record in records]
+
+    def _ensure_schema(self) -> None:
+        for statement in (
+            "CREATE CONSTRAINT kg_document_id IF NOT EXISTS FOR (d:Document) REQUIRE d.document_id IS UNIQUE",
+            "CREATE CONSTRAINT kg_entity_uid IF NOT EXISTS FOR (e:Entity) REQUIRE e.uid IS UNIQUE",
+            "CREATE CONSTRAINT kg_chunk_uid IF NOT EXISTS FOR (c:Chunk) REQUIRE c.uid IS UNIQUE",
+            "CREATE INDEX kg_entity_document IF NOT EXISTS FOR (e:Entity) ON (e.document_id)",
+        ):
+            self._run(statement)
+
+    def close(self) -> None:
+        self.driver.close()
+
+    @staticmethod
+    def _rel_type(relation: str) -> str:
+        value = re.sub(r"[^A-Z0-9_]", "_", relation.upper()).strip("_") or "RELATED"
+        if value[0].isdigit():
+            value = f"R_{value}"
+        return value[:60]
+
+    def store_document(self, document_id: str, file_name: str, summary: str) -> None:
+        self._run(
+            "MERGE (d:Document {document_id: $document_id}) "
+            "SET d.file_name = $file_name, d.summary = $summary, d.updated_at = datetime()",
+            document_id=document_id,
+            file_name=file_name,
+            summary=summary,
+        )
+
+    def insert_triples(self, triples: list[dict], document_id: str) -> int:
+        rows = self._normalise_rows(triples, document_id)
+        if not rows:
+            return 0
+        by_type: dict[str, list[dict]] = defaultdict(list)
+        for row in rows:
+            row["subject_uid"] = f"{document_id}::{canonical_key(row['subject'])}"
+            row["object_uid"] = f"{document_id}::{canonical_key(row['object'])}"
+            by_type[self._rel_type(row["relation"])].append(row)
+        for rel_type, batch in by_type.items():
+            # Relationship types cannot be parameters in Cypher; rel_type is sanitised to [A-Z0-9_].
+            self._run(
+                "UNWIND $rows AS row "
+                "MATCH (d:Document {document_id: $document_id}) "
+                "MERGE (s:Entity {uid: row.subject_uid}) "
+                "  ON CREATE SET s.name = row.subject, s.document_id = $document_id "
+                "MERGE (o:Entity {uid: row.object_uid}) "
+                "  ON CREATE SET o.name = row.object, o.document_id = $document_id "
+                "MERGE (d)-[:HAS_ENTITY]->(s) MERGE (d)-[:HAS_ENTITY]->(o) "
+                f"MERGE (s)-[r:`{rel_type}`]->(o) "
+                "SET r.document_id = $document_id, r.relation = row.relation, "
+                "    r.confidence = CASE WHEN r.confidence IS NULL OR row.confidence > r.confidence "
+                "                        THEN row.confidence ELSE r.confidence END, "
+                "    r.chunk_id = row.chunk_id, r.sentence = row.sentence",
+                rows=batch,
+                document_id=document_id,
+            )
+        self._triple_cache.pop(document_id, None)
+        return len(rows)
+
+    def store_mentions(self, document_id: str, mentions: dict[str, list[str]]) -> int:
+        rows = [
+            {
+                "chunk_uid": f"{document_id}::{chunk_id}",
+                "chunk_id": chunk_id,
+                "entity_uid": f"{document_id}::{canonical_key(name)}",
+                "name": name,
+            }
+            for chunk_id, names in mentions.items()
+            for name in names
+            if canonical_key(name)
+        ]
+        if not rows:
+            return 0
+        self._run(
+            "UNWIND $rows AS row "
+            "MATCH (d:Document {document_id: $document_id}) "
+            "MERGE (c:Chunk {uid: row.chunk_uid}) ON CREATE SET c.chunk_id = row.chunk_id, c.document_id = $document_id "
+            "MERGE (e:Entity {uid: row.entity_uid}) ON CREATE SET e.name = row.name, e.document_id = $document_id "
+            "MERGE (d)-[:HAS_CHUNK]->(c) "
+            "MERGE (c)-[:MENTIONS]->(e)",
+            rows=rows,
+            document_id=document_id,
+        )
+        return len(rows)
+
+    def delete_document(self, document_id: str) -> None:
+        self._run(
+            "MATCH (n) WHERE (n:Entity OR n:Chunk) AND n.document_id = $document_id DETACH DELETE n",
+            document_id=document_id,
+        )
+        self._run("MATCH (d:Document {document_id: $document_id}) DETACH DELETE d", document_id=document_id)
+        self._triple_cache.pop(document_id, None)
+
+    def count_triples(self, document_id: str | None = None) -> int:
+        if document_id:
+            rows = self._run(
+                "MATCH (:Entity {document_id: $document_id})-[r]->(:Entity) RETURN count(r) AS total",
+                document_id=document_id,
+            )
+        else:
+            rows = self._run("MATCH (:Entity)-[r]->(:Entity) RETURN count(r) AS total")
+        return int(rows[0]["total"]) if rows else 0
+
+    def get_document_summary(self, document_id: str) -> str:
+        rows = self._run("MATCH (d:Document {document_id: $document_id}) RETURN d.summary AS summary", document_id=document_id)
+        return str(rows[0].get("summary") or "").strip() if rows else ""
+
+    def _load_document_triples(self, document_id: str) -> list[dict]:
+        if document_id not in self._triple_cache:
+            rows = self._run(
+                "MATCH (s:Entity {document_id: $document_id})-[r]->(o:Entity) "
+                "RETURN s.name AS subject, coalesce(r.relation, type(r)) AS relation, o.name AS object, "
+                "       r.confidence AS confidence, r.chunk_id AS chunk_id, r.sentence AS sentence",
+                document_id=document_id,
+            )
+            for row in rows:
+                row["searchable_text"] = f"{row['subject']} {row['relation']} {row['object']}".lower()
+                row["confidence"] = row.get("confidence") if row.get("confidence") is not None else DEFAULT_CONFIDENCE
+            self._triple_cache[document_id] = rows
+        return list(self._triple_cache[document_id])
+
+    def _load_mentions(self, document_id: str) -> dict[str, list[str]]:
+        rows = self._run(
+            "MATCH (c:Chunk {document_id: $document_id})-[:MENTIONS]->(e:Entity) "
+            "RETURN c.chunk_id AS chunk_id, collect(e.name) AS names",
+            document_id=document_id,
+        )
+        return {row["chunk_id"]: row["names"] for row in rows}
+
+    def get_entity_neighborhood(self, entity_name: str, document_id: str, limit: int = 20) -> tuple[str, list[dict]]:
+        cypher = (
+            "MATCH (c:Entity {uid: $uid})-[r]-(n:Entity) "
+            "RETURN c.name AS center_name, startNode(r).name AS from_name, "
+            "       coalesce(r.relation, type(r)) AS relation_type, endNode(r).name AS to_name, "
+            "       n.name AS neighbor_name "
+            "ORDER BY r.confidence DESC LIMIT $limit"
+        )
+        rows = self._run(cypher, uid=f"{document_id}::{canonical_key(entity_name)}", limit=limit)
+        if not rows:
+            return super().get_entity_neighborhood(entity_name, document_id, limit)
+        for row in rows:
+            row["center_name"] = entity_name
+        return cypher, rows
+
+    def search_paths(self, terms: list[str], document_id: str, max_hops: int = 2, limit: int = 20) -> tuple[str, list[dict]]:
+        cleaned_terms = [term.strip().lower() for term in terms if term.strip()]
+        if not cleaned_terms:
+            return "NEO4J_PATH_SEARCH", []
+        max_hops = max(1, min(3, int(max_hops)))
+        cypher = (
+            "MATCH (a:Entity {document_id: $document_id}) "
+            "WHERE any(term IN $terms WHERE toLower(a.name) CONTAINS term) "
+            f"MATCH p = (a)-[*1..{max_hops}]-(b:Entity) "
+            "WHERE all(n IN nodes(p) WHERE n:Entity) "
+            "RETURN [n IN nodes(p) | n.name] AS path_nodes, "
+            "       [r IN relationships(p) | coalesce(r.relation, type(r))] AS path_relationships "
+            "LIMIT $limit"
+        )
+        rows = self._run(cypher, document_id=document_id, terms=cleaned_terms, limit=limit)
+        unique, seen = [], set()
+        for row in rows:
+            token = (tuple(row["path_nodes"]), tuple(row["path_relationships"]))
+            if token not in seen and len(set(n.lower() for n in row["path_nodes"])) == len(row["path_nodes"]):
+                seen.add(token)
+                unique.append(row)
+        return cypher, unique
+
+
+_NEO4J_FAILED_AT = 0.0
+_NEO4J_RETRY_SECONDS = 30
+
+
 def active_backend_name() -> str:
-    return "embedded"
+    mode = os.environ.get("KG_GRAPH_BACKEND", "auto").strip().lower()
+    if mode == "embedded":
+        return "embedded"
+    if mode == "neo4j":
+        return "neo4j"
+    return "neo4j" if os.environ.get("NEO4J_URI") and time.time() - _NEO4J_FAILED_AT > _NEO4J_RETRY_SECONDS else "embedded"
 
 
 def create_graph_store() -> BaseGraphStore:
+    global _NEO4J_FAILED_AT
+    mode = os.environ.get("KG_GRAPH_BACKEND", "auto").strip().lower()
+    if mode == "embedded":
+        return EmbeddedGraphStore()
+    if mode == "neo4j":
+        return Neo4jGraphStore()
+    if os.environ.get("NEO4J_URI") and time.time() - _NEO4J_FAILED_AT > _NEO4J_RETRY_SECONDS:
+        try:
+            return Neo4jGraphStore()
+        except Exception as error:
+            _NEO4J_FAILED_AT = time.time()
+            print(f"[graph] Neo4j unavailable ({error}); using embedded graph store.", flush=True)
     return EmbeddedGraphStore()
 
 
