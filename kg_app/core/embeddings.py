@@ -55,7 +55,7 @@ def _load_sentence_transformer():
     try:
         from sentence_transformers import SentenceTransformer
 
-        _MODEL = SentenceTransformer(model_name)
+        _MODEL = SentenceTransformer(model_name, device=os.environ.get("KG_EMBEDDING_DEVICE", "cpu"))
         return _MODEL
     except Exception as error:
         print(f"Embedding model unavailable, using local fallback: {error}")
