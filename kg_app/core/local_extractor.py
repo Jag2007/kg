@@ -156,6 +156,10 @@ class _SentenceEntities:
         elif token.pos_ in {"NOUN", "PROPN"}:
             parts = [child.text for child in token.lefts if child.dep_ in {"compound", "amod"}]
             name = _clean_name(" ".join(parts + [token.text]))
+        # Keep identifiers attached: "port 443", "Backend 2", "version 3.1".
+        numbers = [child.text for child in token.rights if child.dep_ in {"nummod", "appos"} and child.like_num]
+        if name and numbers and numbers[0] not in name:
+            name = f"{name} {numbers[0]}"
         return name
 
 
@@ -207,6 +211,14 @@ def _subjects_of(verb, sentence_entities, last_subject: str) -> tuple[list[str],
                 subjects.append(last_subject)
                 continue
             name = sentence_entities.of(item)
+            if name:
+                subjects.append(name)
+    # Mis-parsed "nginx listens on ..." (verb tagged as a noun with the subject as its compound).
+    if not subjects and verb.dep_ == "ROOT" and verb.pos_ != "VERB":
+        lefts = [child for child in verb.lefts if child.dep_ in {"compound", "amod", "nmod"}]
+        if lefts:
+            span = verb.doc[lefts[0].left_edge.i : verb.i]
+            name = _clean_name(span.text)
             if name:
                 subjects.append(name)
     # Relative clause: "Helix Labs, which is based in Berlin" -> subject is the head noun.
@@ -349,7 +361,13 @@ def extract_chunk_knowledge(text: str) -> dict:
 
         sentence_triples: list[dict] = []
         for token in sent:
-            is_predicate = token.pos_ == "VERB" or token.lemma_ == "be"
+            has_subject = any(child.dep_ in SUBJECT_DEPS for child in token.children)
+            looks_like_verb = token.tag_ in {"VBZ", "VBD", "VBP", "VB", "NNS"} and token.pos_ != "PROPN"
+            is_predicate = token.pos_ == "VERB" or token.lemma_ == "be" or (
+                token.dep_ == "ROOT"
+                and looks_like_verb
+                and (has_subject or any(c.dep_ in {"prep", "dobj"} for c in token.children))
+            )
             if is_predicate:
                 sentence_triples.extend(_triples_for_verb(token, sentence_entities, last_subject))
         sentence_triples.extend(_appositive_triples(sent, sentence_entities))
