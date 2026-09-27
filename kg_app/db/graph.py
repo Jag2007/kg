@@ -37,6 +37,10 @@ load_dotenv(dotenv_path=ENV_PATH, override=False)
 STATE_DIR = Path(os.environ.get("KG_STATE_DIR", Path(__file__).resolve().parents[1] / "state"))
 EMBEDDED_PATH = STATE_DIR / ".graph_store.json"
 
+# Multi-hop expansion settings.
+HOP_LIMITS = {1: 25, 2: 12, 3: 5}
+HOP_DECAY = 0.6
+CO_MENTION_WEIGHT = 0.35
 DEFAULT_CONFIDENCE = 0.7
 
 
@@ -45,6 +49,10 @@ def canonical_key(name: str) -> str:
     value = re.sub(r"('s|’s)$", "", value)
     value = re.sub(r"[^a-z0-9]+", " ", value)
     return re.sub(r"\s+", " ", value).strip()
+
+
+def hop_decay(distance: int) -> float:
+    return 1.0 / (1.0 + HOP_DECAY * max(distance - 1, 0))
 
 
 class BaseGraphStore:
@@ -251,6 +259,140 @@ class BaseGraphStore:
             {"from_name": row.get("subject", ""), "relation_type": row.get("relation", ""), "to_name": row.get("object", "")}
             for row in rows[:limit]
         ]
+
+    # ---------------------------------------------------------- multi-hop
+    def _typed_edges(self, document_id: str) -> list[dict]:
+        return self._load_document_triples(document_id)
+
+    def expand_entities(
+        self,
+        seeds: list[str],
+        document_id: str,
+        depth: int = 2,
+        query_terms: list[str] | None = None,
+    ) -> tuple[str, dict]:
+        """
+        Walk outward from the seed entities, hop by hop.
+
+        Typed relation edges carry their confidence; entities that are only
+        mentioned in the same chunk are linked by a weaker co-mention edge.
+        Each node keeps the shortest distance at which it was reached and the
+        best path score, decayed by distance, so a fact two hops away can
+        still support an answer without drowning out direct facts.
+        """
+        depth = max(1, min(3, int(depth)))
+        query_terms = [term.lower() for term in (query_terms or []) if term]
+        adjacency: dict[str, list[dict]] = defaultdict(list)
+        names: dict[str, str] = {}
+
+        for row in self._typed_edges(document_id):
+            subject_key, object_key = canonical_key(row["subject"]), canonical_key(row["object"])
+            if not subject_key or not object_key or subject_key == object_key:
+                continue
+            names.setdefault(subject_key, row["subject"])
+            names.setdefault(object_key, row["object"])
+            edge = {
+                "from": row["subject"],
+                "relation": row["relation"],
+                "to": row["object"],
+                "weight": float(row.get("confidence", DEFAULT_CONFIDENCE) or DEFAULT_CONFIDENCE),
+                "sentence": row.get("sentence", ""),
+                "chunk_id": row.get("chunk_id", ""),
+            }
+            adjacency[subject_key].append({**edge, "target": object_key})
+            adjacency[object_key].append({**edge, "target": subject_key})
+
+        # Co-mention edges: entities that appear in the same chunk.
+        shared: dict[tuple[str, str], set[str]] = defaultdict(set)
+        for chunk_id, entity_names in self._load_mentions(document_id).items():
+            keys = sorted({canonical_key(name) for name in entity_names if canonical_key(name)})[:40]
+            for name in entity_names:
+                names.setdefault(canonical_key(name), name)
+            for i, left in enumerate(keys):
+                for right in keys[i + 1 :]:
+                    shared[(left, right)].add(chunk_id)
+        for (left, right), chunk_ids in shared.items():
+            weight = CO_MENTION_WEIGHT * min(1.0, len(chunk_ids) / 2)
+            for source, target in ((left, right), (right, left)):
+                adjacency[source].append(
+                    {
+                        "from": names.get(left, left),
+                        "relation": "CO_MENTIONED",
+                        "to": names.get(right, right),
+                        "weight": weight,
+                        "sentence": "",
+                        "chunk_id": sorted(chunk_ids)[0],
+                        "target": target,
+                    }
+                )
+
+        seed_keys = [canonical_key(seed) for seed in seeds if canonical_key(seed) in names]
+        nodes: dict[str, dict] = {
+            key: {"name": names[key], "distance": 0, "score": 1.0, "via": []} for key in seed_keys
+        }
+        edges: list[dict] = []
+        frontier = list(seed_keys)
+        for distance in range(1, depth + 1):
+            next_frontier: list[str] = []
+            for source in frontier:
+                candidates = []
+                for edge in adjacency.get(source, []):
+                    target = edge["target"]
+                    if target in seed_keys:
+                        continue
+                    term_bonus = 0.5 if any(term in target for term in query_terms) else 0.0
+                    path_score = nodes[source]["score"] * edge["weight"]
+                    candidates.append((path_score + term_bonus * hop_decay(distance), edge, path_score))
+                candidates.sort(key=lambda item: -item[0])
+                for rank_score, edge, path_score in candidates[: HOP_LIMITS[distance]]:
+                    target = edge["target"]
+                    score = path_score * hop_decay(distance)
+                    known = nodes.get(target)
+                    if known is None:
+                        nodes[target] = {
+                            "name": names.get(target, target),
+                            "distance": distance,
+                            "score": score,
+                            "via": nodes[source]["via"] + [nodes[source]["name"]],
+                        }
+                        next_frontier.append(target)
+                    elif score > known["score"] and known["distance"] >= distance:
+                        known["score"] = score
+                    edges.append(
+                        {
+                            "from": edge["from"],
+                            "relation": edge["relation"],
+                            "to": edge["to"],
+                            "distance": distance,
+                            "score": round(score, 4),
+                            "sentence": edge["sentence"],
+                            "chunk_id": edge["chunk_id"],
+                        }
+                    )
+            frontier = next_frontier
+            if not frontier:
+                break
+
+        unique_edges: dict[tuple, dict] = {}
+        for edge in edges:
+            key = (edge["from"].lower(), edge["relation"], edge["to"].lower())
+            if key not in unique_edges or edge["score"] > unique_edges[key]["score"]:
+                unique_edges[key] = edge
+        ranked_nodes = sorted(nodes.values(), key=lambda node: (node["distance"], -node["score"]))
+        return self._label(f"EXPAND_DEPTH_{depth}"), {
+            "nodes": ranked_nodes,
+            "edges": sorted(unique_edges.values(), key=lambda edge: (edge["distance"], -edge["score"])),
+        }
+
+    def entity_chunks(self, document_id: str) -> dict[str, list[str]]:
+        """canonical entity key -> chunk ids that mention it."""
+        index: dict[str, list[str]] = defaultdict(list)
+        for chunk_id, entity_names in self._load_mentions(document_id).items():
+            for name in entity_names:
+                key = canonical_key(name)
+                if key and chunk_id not in index[key]:
+                    index[key].append(chunk_id)
+        return index
 
     def get_graph_data(self, document_id: str, limit: int = 150) -> dict:
         """Nodes + edges for the frontend visualisation."""
