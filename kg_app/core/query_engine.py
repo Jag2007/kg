@@ -2,6 +2,7 @@ import re
 from difflib import SequenceMatcher
 
 from kg_app.db.graph import GraphStore
+from kg_app.core import answer_llm
 from kg_app.core.embeddings import cosine_similarity, embed_text
 from kg_app.core.utils import split_into_sentences
 from kg_app.state.chunk_store import get_document_chunks
@@ -555,6 +556,11 @@ def _is_overview_question(question: str) -> bool:
         "key topics",
         "overview",
     ]
+    if re.search(
+        r"\b(what|which)\b.*\b(is|does|are)\b\s+(the|this|that|uploaded)?\s*(pdf|document|doc|file|paper)\b.*\b(about|talk|cover|discuss|explain)",
+        text,
+    ):
+        return True
     return any(pattern in text for pattern in patterns)
 
 
@@ -1530,7 +1536,7 @@ def _format_entity_neighborhood(question: str, anchor: str, rows: list[dict], te
     return "Based on the uploaded document: " + "; ".join(facts) + "."
 
 
-def ask_question(question: str, document_id: str) -> dict:
+def _rule_based_answer(question: str, document_id: str) -> dict:
     """Graph-first question answering scoped to the active uploaded document."""
     graph = GraphStore()
     try:
@@ -1790,3 +1796,279 @@ def ask_question(question: str, document_id: str) -> dict:
         }
     finally:
         graph.close()
+
+
+# ---------------------------------------------------------------------------
+# Multi-hop graph evidence
+#
+# The rule-based engine above is strong on single-hop questions. Multi-hop
+# questions ("where is the company that X works for based?") need facts that
+# are one or two edges away from the entity named in the question, and the
+# passages that mention those far-away entities even when they share no words
+# with the question. The helpers below expand the graph around the question's
+# anchor entities, rank chunks by the entities they mention, and hand that
+# evidence to the answer writer.
+# ---------------------------------------------------------------------------
+
+MULTI_HOP_DEPTH = 2
+MAX_FACTS = 20
+MAX_PASSAGES = 5
+
+
+def _canonical(name: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", str(name or "").lower())).strip()
+
+
+def _relation_phrase(relation: str) -> str:
+    return str(relation or "").replace("_", " ").lower().strip()
+
+
+def _graph_evidence(question: str, document_id: str) -> dict:
+    empty = {"anchors": [], "nodes": [], "edges": [], "chunk_boost": {}, "query": ""}
+    graph = GraphStore()
+    try:
+        if not hasattr(graph, "expand_entities"):
+            return empty
+        terms = _extract_terms(question)
+        phrases = _extract_entity_phrases(question)
+        expanded = _expand_terms(terms)
+        _, candidates = graph.find_relevant_entities(phrases + (terms or expanded), document_id, limit=12)
+        anchors = _rank_anchor_entities(terms or expanded, phrases, candidates)[:3]
+        if not anchors:
+            return empty
+        relation_groups = _extract_relation_groups(question)
+        depth = MULTI_HOP_DEPTH + (1 if _is_multi_hop_question(question, relation_groups) else 0)
+        query, expansion = graph.expand_entities(anchors, document_id, depth=depth, query_terms=expanded)
+        entity_chunks = graph.entity_chunks(document_id)
+        chunk_boost: dict[str, float] = {}
+        for node in expansion["nodes"]:
+            for chunk_id in entity_chunks.get(_canonical(node["name"]), []):
+                chunk_boost[chunk_id] = max(chunk_boost.get(chunk_id, 0.0), float(node["score"]))
+        return {
+            "anchors": anchors,
+            "nodes": expansion["nodes"],
+            "edges": expansion["edges"],
+            "chunk_boost": chunk_boost,
+            "query": query,
+        }
+    finally:
+        graph.close()
+
+
+def _evidence_facts(evidence: dict) -> list[str]:
+    typed = [edge for edge in evidence["edges"] if edge["relation"] != "CO_MENTIONED"]
+    facts = []
+    seen = set()
+    for edge in typed[: MAX_FACTS * 2]:
+        fact = f"{edge['from']} -> {_relation_phrase(edge['relation'])} -> {edge['to']} (hop {edge['distance']})"
+        if fact.lower() not in seen:
+            seen.add(fact.lower())
+            facts.append(fact)
+        if len(facts) >= MAX_FACTS:
+            break
+    return facts
+
+
+def _sentence_windows(text: str) -> list[str]:
+    """Sentence plus its neighbours, so table rows and short lines keep their context."""
+    sentences = [item.strip() for item in split_into_sentences(text) if item.strip()]
+    windows = []
+    for index, sentence in enumerate(sentences):
+        window = " ".join(sentences[max(0, index - 1) : index + 2])
+        windows.append(window[:600])
+    return windows
+
+
+def _evidence_passages(question: str, document_id: str, evidence: dict) -> list[dict]:
+    terms = _expand_terms(_extract_terms(question))
+    phrases = _extract_entity_phrases(question)
+    node_names = [node["name"] for node in evidence["nodes"][:12]]
+    boost = evidence.get("chunk_boost", {})
+    hits = _search_semantic_chunks(
+        document_id,
+        question,
+        terms,
+        phrases,
+        set(),
+        graph_entities=node_names,
+        limit=6,
+    )
+    candidate_chunks: dict[str, dict] = {
+        hit.get("chunk_id", ""): {"text": hit.get("text", ""), "page": hit.get("page"), "score": float(hit["score"])}
+        for hit in hits
+    }
+    # Bridge chunks: they mention entities reached through the graph but may
+    # share no words with the question, so plain retrieval never finds them.
+    if node_names:
+        for chunk in get_document_chunks(document_id):
+            chunk_id = chunk.get("id", "")
+            if chunk_id not in candidate_chunks and boost.get(chunk_id, 0.0) >= 0.15:
+                candidate_chunks[chunk_id] = {"text": chunk.get("text", ""), "page": chunk.get("page"), "score": 0.0}
+
+    # Sentence-level re-ranking: embedding similarity + question terms + graph entities.
+    query_embedding = embed_text(question)
+    far_names = [name.lower() for name in node_names]
+    scored: list[dict] = []
+    for chunk_id, chunk in candidate_chunks.items():
+        for window in _sentence_windows(chunk["text"]):
+            lowered = window.lower()
+            similarity = cosine_similarity(query_embedding, embed_text(window))
+            term_hits = _count_term_coverage(window, terms)
+            entity_hits = sum(1 for name in far_names if name and name in lowered)
+            score = (
+                similarity
+                + 0.08 * min(term_hits, 4)
+                + 0.05 * min(entity_hits, 3)
+                + 0.15 * chunk["score"]
+                + 0.2 * boost.get(chunk_id, 0.0)
+            )
+            scored.append({"chunk_id": chunk_id, "text": window, "page": chunk["page"], "score": round(score, 4)})
+
+    passages: list[dict] = []
+    for item in sorted(scored, key=lambda row: -row["score"]):
+        if any(item["text"][:80] in chosen["text"] or chosen["text"][:80] in item["text"] for chosen in passages):
+            continue
+        passages.append(item)
+        if len(passages) >= MAX_PASSAGES:
+            break
+    return passages
+
+
+def _chain_answer(question: str, evidence: dict) -> str:
+    """Rule-based multi-hop answer: follow the best path to a far entity."""
+    question_tokens = set(_tokenize_value(question))
+    typed_edges = [edge for edge in evidence["edges"] if edge["relation"] != "CO_MENTIONED"]
+    targets = [
+        node
+        for node in evidence["nodes"]
+        if node["distance"] >= 2 and not (set(_tokenize_value(node["name"])) & question_tokens)
+    ]
+    for node in sorted(targets, key=lambda item: -item["score"]):
+        chain = node["via"] + [node["name"]]
+        sentences = []
+        for left, right in zip(chain, chain[1:]):
+            edge = next(
+                (
+                    item
+                    for item in typed_edges
+                    if {item["from"].lower(), item["to"].lower()} == {left.lower(), right.lower()}
+                ),
+                None,
+            )
+            if edge is None:
+                break
+            sentences.append(f"{edge['from']} {_relation_phrase(edge['relation'])} {edge['to']}")
+        if len(sentences) == len(chain) - 1 and sentences:
+            return ". ".join(sentence[0].upper() + sentence[1:] for sentence in sentences) + "."
+    return ""
+
+
+def _readable_sentence(sentence: str) -> bool:
+    text = sentence.strip()
+    if not 40 <= len(text) <= 320:
+        return False
+    letters = sum(char.isalpha() or char.isspace() for char in text)
+    return letters / max(1, len(text)) > 0.85 and not re.search(r"[{}<>$=|]|\becho\b|\bsudo\b", text)
+
+
+def _overview_passages(document_id: str, limit: int = 6) -> list[str]:
+    """Readable lead sentences from chunks spread across the whole document."""
+    chunks = get_document_chunks(document_id)
+    if not chunks:
+        return []
+    step = max(1, len(chunks) // limit)
+    passages = []
+    for chunk in chunks[::step]:
+        sentences = [item for item in split_into_sentences(chunk.get("text", "")) if _readable_sentence(item)]
+        if sentences:
+            passages.append(" ".join(sentences[:2]))
+        if len(passages) >= limit:
+            break
+    return passages
+
+
+def _overview_answer(question: str, document_id: str, response: dict) -> dict:
+    passages = _overview_passages(document_id)
+    answer = ""
+    mode = "rules"
+    if passages and answer_llm.is_available():
+        written = answer_llm.generate_answer(
+            "Summarise what this PDF is about in 2-3 sentences: its subject, purpose and main topics.",
+            [],
+            passages,
+        )
+        if written and written != answer_llm.NOT_FOUND_ANSWER:
+            answer, mode = written, f"llm:{answer_llm.model_name()}"
+    if not answer and passages:
+        answer = "The document covers: " + " ".join(passages[:3])
+    if answer:
+        response["answer"] = answer
+        response["results"] = response.get("results") or [{"text": passage} for passage in passages]
+    response["answer_mode"] = mode
+    response["graph_evidence"] = {"anchors": [], "nodes": [], "edges": [], "passages": [{"text": p} for p in passages]}
+    response.setdefault("steps_taken", []).append({"step": "document_overview", "mode": mode, "passages": len(passages)})
+    return response
+
+
+def ask_question(question: str, document_id: str) -> dict:
+    """Rule-based graph answer, upgraded with multi-hop evidence and an optional local LLM."""
+    response = _rule_based_answer(question, document_id)
+    if _is_overview_question(question):
+        return _overview_answer(question, document_id, response)
+    answer = str(response.get("answer", "")).strip()
+    base_failed = not response.get("results") or answer.startswith("No data found")
+
+    try:
+        evidence = _graph_evidence(question, document_id)
+    except Exception as error:
+        print(f"[query_engine] graph evidence failed: {error}", flush=True)
+        evidence = {"anchors": [], "nodes": [], "edges": [], "chunk_boost": {}, "query": ""}
+
+    facts = _evidence_facts(evidence) if evidence["edges"] else []
+    passages = _evidence_passages(question, document_id, evidence) if evidence["anchors"] or base_failed else []
+    answer_mode = "rules"
+
+    if answer_llm.is_available() and (facts or passages):
+        written = answer_llm.generate_answer(
+            question,
+            facts,
+            [passage["text"] for passage in passages],
+            draft="" if base_failed else answer,
+        )
+        if written and (written != answer_llm.NOT_FOUND_ANSWER or base_failed):
+            answer = written
+            answer_mode = f"llm:{answer_llm.model_name()}"
+    elif base_failed:
+        chained = _chain_answer(question, evidence)
+        if chained:
+            answer = chained
+            answer_mode = "graph-chain"
+
+    if base_failed and answer_mode != "rules" and answer != answer_llm.NOT_FOUND_ANSWER:
+        response["results"] = evidence["edges"][:10] or passages
+        response["query"] = evidence["query"]
+
+    response["answer"] = answer
+    response["answer_mode"] = answer_mode
+    response["graph_evidence"] = {
+        "anchors": evidence["anchors"],
+        "nodes": [
+            {"name": node["name"], "distance": node["distance"], "score": round(float(node["score"]), 3)}
+            for node in evidence["nodes"][:20]
+        ],
+        "edges": [edge for edge in evidence["edges"] if edge["relation"] != "CO_MENTIONED"][:20],
+        "passages": passages,
+    }
+    steps = response.get("steps_taken") or []
+    if evidence["anchors"]:
+        steps.append(
+            {
+                "step": "graph_expansion",
+                "anchors": evidence["anchors"],
+                "nodes": len(evidence["nodes"]),
+                "max_distance": max((node["distance"] for node in evidence["nodes"]), default=0),
+            }
+        )
+    steps.append({"step": "answer", "mode": answer_mode})
+    response["steps_taken"] = steps
+    return response
