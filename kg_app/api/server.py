@@ -22,8 +22,9 @@ from kg_app.core.utils import (
     split_into_sentences,
     summarize_text,
 )
+from kg_app.core import answer_llm, local_extractor
 from kg_app.core.extractor import extract_triples_llm, extract_triples_fallback, precompute_chunk_metadata
-from kg_app.db.graph import GraphStore
+from kg_app.db.graph import GraphStore, active_backend_name
 from kg_app.core.query_engine import ask_question
 from kg_app.state.document_store import set_active_document, get_active_document
 from kg_app.state.chunk_store import save_document_chunks, get_document_chunks
@@ -39,6 +40,12 @@ UPLOAD_MAX_WORDS = int(os.environ.get("KG_MAX_WORDS", "700"))
 UPLOAD_OVERLAP_WORDS = int(os.environ.get("KG_OVERLAP_WORDS", "80"))
 UPLOAD_MAX_CHUNKS = max(1, int(os.environ.get("KG_MAX_CHUNKS", "10")))
 UPLOAD_WORKERS = max(1, min(2, int(os.environ.get("KG_UPLOAD_WORKERS", "1"))))
+
+
+def _extractor_mode() -> str:
+    """spacy (default, local) | llm (OpenAI-compatible endpoint, e.g. Ollama /v1) | hybrid (both)."""
+    mode = os.environ.get("KG_EXTRACTOR", "spacy").strip().lower()
+    return mode if mode in {"spacy", "llm", "hybrid"} else "spacy"
 GROUNDING_STOP_WORDS = {
     "a", "an", "and", "are", "about", "after", "all", "also", "any", "before", "by",
     "can", "do", "does", "for", "from", "how", "in", "into", "is", "it", "its",
@@ -108,7 +115,8 @@ def _backend_log(message: str) -> None:
 
 
 def _use_hebbrix_native() -> bool:
-    return bool(os.environ.get("HEBBRIX_API_KEY")) and _env_flag("HEBBRIX_NATIVE_MODE", "1")
+    # Off by default: the app runs fully locally. Set HEBBRIX_NATIVE_MODE=1 to use the Hebbrix API.
+    return bool(os.environ.get("HEBBRIX_API_KEY")) and _env_flag("HEBBRIX_NATIVE_MODE", "0")
 
 
 def _hebbrix_base_url() -> str:
@@ -1069,9 +1077,47 @@ async def index():
     """Serve the frontend."""
     return FileResponse(STATIC_DIR / "index.html")
 
+
+@app.get("/health")
+async def health():
+    """Which pieces of the local stack are live."""
+    graph_backend = active_backend_name()
+    try:
+        graph = GraphStore()
+        graph_backend = graph.backend
+        graph.close()
+    except Exception as error:
+        graph_backend = f"unavailable: {error}"
+    return {
+        "status": "ok",
+        "graph_backend": graph_backend,
+        "extractor": _extractor_mode(),
+        "spacy_ready": local_extractor.is_available(),
+        "answer_llm": answer_llm.model_name() if answer_llm.is_available() else None,
+        "hebbrix_mode": _use_hebbrix_native(),
+        "active_document": get_active_document(),
+    }
+
+
+@app.get("/graph")
+async def graph_data(limit: int = 150):
+    """Nodes and edges of the active document's graph for the visualisation."""
+    active_document = get_active_document()
+    document_id = str(active_document.get("document_id", "")).strip()
+    if not document_id or document_id.startswith("hebbrix:"):
+        return {"nodes": [], "edges": [], "file_name": active_document.get("file_name", "")}
+    graph = GraphStore()
+    try:
+        data = graph.get_graph_data(document_id, limit=max(10, min(limit, 400)))
+    finally:
+        graph.close()
+    data["file_name"] = active_document.get("file_name", "")
+    data["triples"] = len(data["edges"])
+    return data
+
 @app.post("/upload_pdf")
 async def upload_pdf(file: UploadFile = File(...)):
-    """Upload a PDF, extract knowledge triples, and save to MongoDB."""
+    """Upload a PDF, extract knowledge triples locally, and store the knowledge graph."""
     graph = None
     try:
         _backend_log(f"Upload started for file '{file.filename or 'unknown'}'.")
@@ -1158,72 +1204,72 @@ async def upload_pdf(file: UploadFile = File(...)):
                 "trace": "",
             }
 
-        # Limit chunks for LLM triple extraction only; keep all chunks for semantic retrieval.
-        extraction_chunks = all_chunks
-        if len(all_chunks) > UPLOAD_MAX_CHUNKS:
-            extraction_chunks = _merge_chunks_for_limit(all_chunks, UPLOAD_MAX_CHUNKS)
-            _backend_log(
-                f"Using {len(extraction_chunks)} merged chunks for triple extraction "
-                f"(all {len(all_chunks)} chunks kept for semantic retrieval)."
-            )
-
-        extraction_chunks = precompute_chunk_metadata(extraction_chunks)
-        _backend_log("Chunk metadata enrichment step finished.")
-        chunk_texts = [chunk["text"] for chunk in extraction_chunks]
-        
         graph = GraphStore()
         document_id = str(uuid.uuid4())
-        _backend_log(f"Created document id {document_id}.")
+        _backend_log(f"Created document id {document_id} using the {graph.backend} graph backend.")
+        extractor_mode = _extractor_mode()
+        extraction_chunks = all_chunks
+        all_triples: list[dict] = []
         extracted_triples_debug = []
-        all_triples = []
+        mentions: dict[str, list[str]] = {}
         seen = set()
-        loop = asyncio.get_running_loop()
-        with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as executor:
-            _backend_log(
-                f"Starting LLM triple extraction for {len(chunk_texts)} chunks with {UPLOAD_WORKERS} worker(s)."
-            )
-            tasks = [loop.run_in_executor(executor, extract_triples_llm, chunk_text) for chunk_text in chunk_texts]
-            raw_batches = await asyncio.gather(*tasks, return_exceptions=True)
 
-        triple_batches: list[list[dict]] = []
-        for index, batch in enumerate(raw_batches, start=1):
-            if isinstance(batch, Exception):
-                print(f"[server] Chunk {index}/{len(raw_batches)} extraction failed: {batch}", flush=True)
-                fallback_triples = extract_triples_fallback(chunk_texts[index - 1])
-                _backend_log(
-                    f"Chunk {index}/{len(raw_batches)} fallback extraction returned {len(fallback_triples)} triples."
-                )
-                triple_batches.append(fallback_triples)
-            else:
-                if not batch:
-                    fallback_triples = extract_triples_fallback(chunk_texts[index - 1])
-                    _backend_log(
-                        f"Chunk {index}/{len(raw_batches)} fallback extraction returned {len(fallback_triples)} triples."
-                    )
-                    triple_batches.append(fallback_triples)
-                    continue
-                _backend_log(
-                    f"Chunk {index}/{len(raw_batches)} extraction returned {len(batch)} triples."
-                )
-                triple_batches.append(batch)
-
-        # 3. Accumulate validated triples (dedup across the whole document)
-        for triples in triple_batches:
+        def add_triples(triples: list[dict], chunk_id: str = "") -> None:
             for t in triples:
                 key = (t["subject"].strip().lower(), t["relation"].strip().lower(), t["object"].strip().lower())
                 if key in seen:
                     continue
                 seen.add(key)
+                if chunk_id and not t.get("chunk_id"):
+                    t["chunk_id"] = chunk_id
                 all_triples.append(t)
                 if len(extracted_triples_debug) < 10:
                     extracted_triples_debug.append((t["subject"], t["relation"], t["object"]))
+
+        # 3a. Local spaCy extraction over every chunk (no API, no chunk limit).
+        if extractor_mode in {"spacy", "hybrid"}:
+            loop = asyncio.get_running_loop()
+            started = time.time()
+            for chunk in all_chunks:
+                knowledge = await loop.run_in_executor(None, local_extractor.extract_chunk_knowledge, chunk["text"])
+                add_triples(knowledge["triples"], chunk["id"])
+                mentions[chunk["id"]] = knowledge["entities"]
+            _backend_log(
+                f"spaCy extracted {len(all_triples)} triples and "
+                f"{sum(len(v) for v in mentions.values())} entity mentions from {len(all_chunks)} chunks "
+                f"in {time.time() - started:.1f}s."
+            )
+
+        # 3b. Optional LLM extraction (Hebbrix / OpenAI-compatible / Ollama via OPENAI_BASE_URL).
+        if extractor_mode in {"llm", "hybrid"}:
+            if len(all_chunks) > UPLOAD_MAX_CHUNKS:
+                extraction_chunks = _merge_chunks_for_limit(all_chunks, UPLOAD_MAX_CHUNKS)
+                _backend_log(
+                    f"Using {len(extraction_chunks)} merged chunks for LLM triple extraction "
+                    f"(all {len(all_chunks)} chunks kept for semantic retrieval)."
+                )
+            extraction_chunks = precompute_chunk_metadata(extraction_chunks)
+            chunk_texts = [chunk["text"] for chunk in extraction_chunks]
+            loop = asyncio.get_running_loop()
+            with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as executor:
+                tasks = [loop.run_in_executor(executor, extract_triples_llm, text) for text in chunk_texts]
+                raw_batches = await asyncio.gather(*tasks, return_exceptions=True)
+            for index, batch in enumerate(raw_batches, start=1):
+                if isinstance(batch, Exception) or not batch:
+                    if isinstance(batch, Exception):
+                        print(f"[server] Chunk {index}/{len(raw_batches)} LLM extraction failed: {batch}", flush=True)
+                    batch = extract_triples_fallback(chunk_texts[index - 1])
+                add_triples(batch, extraction_chunks[index - 1].get("id", ""))
+            _backend_log(f"LLM extraction finished; {len(all_triples)} unique triples in total.")
+
         _backend_log(f"Accumulated {len(all_triples)} unique triples across all chunks.")
 
         summary = build_document_summary(file.filename, all_triples)
         graph.store_document(document_id, file.filename, summary)
         triples_added = graph.insert_triples(all_triples, document_id)
+        mention_count = graph.store_mentions(document_id, mentions) if mentions else 0
         _backend_log(
-            f"Stored document summary and inserted {triples_added} triples into MongoDB."
+            f"Stored document summary, {triples_added} triples and {mention_count} chunk mentions in {graph.backend}."
         )
         save_document_chunks(document_id, file.filename, all_chunks)
         set_active_document(document_id, file.filename)
@@ -1262,6 +1308,9 @@ async def upload_pdf(file: UploadFile = File(...)):
                 "workers_used": UPLOAD_WORKERS,
                 "document_id": document_id,
                 "summary": summary,
+                "extractor": extractor_mode,
+                "graph_backend": graph.backend,
+                "entity_mentions": sum(len(v) for v in mentions.values()),
             },
         }
 
@@ -1511,6 +1560,8 @@ async def ask(q: QuestionRequest):
             "results": results,
             "answer": answer,
             "steps": response.get("steps_taken", response.get("steps", [])),
+            "answer_mode": response.get("answer_mode", "rules"),
+            "graph_evidence": response.get("graph_evidence", {}),
             "debug": {
                 "question": question,
                 "query": response.get("query", ""),

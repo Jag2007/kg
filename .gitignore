@@ -25,6 +25,8 @@ venv/
 .document_chunks.json
 kg_app/state/.active_document.json
 kg_app/state/.document_chunks.json
+kg_app/state/.graph_store.json
+kg_app/state/*.tmp
 
 # Root-level PDFs used only for local upload tests
 /*.pdf
