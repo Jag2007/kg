@@ -339,6 +339,22 @@ def _noun_prep_triples(sent, sentence_entities) -> list[dict]:
     return [t for t in triples if t["object"]]
 
 
+def _relation_is_a_name(triple: dict, source: str) -> bool:
+    """Drop 'DNS server DHANVIN_ON Mac 1' - the 'verb' is someone's name from '(Dhanvin on Mac 1)'."""
+    word = str(triple.get("relation", "")).split("_")[0]
+    if len(word) < 3:
+        return False
+    context = triple.get("sentence") or source
+    if re.search(rf"\b{re.escape(word.lower())}\b", context):
+        return False
+    # A capitalised word mid-sentence is a name; at a sentence start it may just be an imperative verb.
+    for match in re.finditer(rf"\b{re.escape(word.capitalize())}\b", context):
+        before = context[: match.start()].rstrip()
+        if before and before[-1] not in ".!?:\n":
+            return True
+    return False
+
+
 def extract_chunk_knowledge(text: str) -> dict:
     """Return {'triples': [...], 'entities': [...]} for one chunk of text."""
     source = str(text or "").strip()
@@ -385,6 +401,16 @@ def extract_chunk_knowledge(text: str) -> dict:
                     last_subject = name
                     break
 
+    # Regex heuristics catch short technical statements the small parser misreads.
+    from kg_app.core.extractor import extract_triples_fallback
+
+    known = {(t["subject"].lower(), t["object"].lower()) for t in raw_triples}
+    for triple in extract_triples_fallback(source):
+        if (triple["subject"].lower(), triple["object"].lower()) not in known:
+            triple.setdefault("confidence", 0.55)
+            raw_triples.append(triple)
+
+    raw_triples = [triple for triple in raw_triples if not _relation_is_a_name(triple, source)]
     cleaned = clean_and_validate_triples(raw_triples)
     # clean_and_validate_triples drops extra keys; re-attach confidence + sentence evidence.
     evidence = {}
