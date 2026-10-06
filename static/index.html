@@ -4,127 +4,132 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Knowledge Graph Studio</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="/static/style.css?v=2" />
 </head>
 <body>
   <div class="page-shell">
-    <header class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">Knowledge Graph System</p>
-        <h1>Upload a PDF, build the graph, and ask clear questions.</h1>
-        <p class="hero-text">
-          This interface keeps the normal view simple, while giving you a JSON toggle whenever you want to inspect the extracted triples and query output.
-        </p>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="22" height="22"><circle cx="8" cy="9" r="3.2"/><circle cx="24" cy="8" r="3.2"/><circle cx="16" cy="23" r="3.6"/><path d="M8 9 L24 8 M8 9 L16 23 M24 8 L16 23" /></svg>
+        </div>
+        <div>
+          <h1>Knowledge Graph Studio</h1>
+          <p class="brand-sub">PDF → entities → relations → answers. Runs fully on your machine.</p>
+        </div>
       </div>
-      <div class="hero-panel">
-        <div class="hero-stat">
-          <span class="hero-stat-label">Mode</span>
-          <strong>FastAPI Frontend</strong>
-        </div>
-        <div class="hero-stat">
-          <span class="hero-stat-label">Theme</span>
-          <strong>Grey + White</strong>
-        </div>
+      <div class="status-pills" id="status-pills">
+        <span class="pill" id="pill-graph"><span class="dot"></span>Graph: …</span>
+        <span class="pill" id="pill-extractor"><span class="dot"></span>Extractor: …</span>
+        <span class="pill" id="pill-llm"><span class="dot"></span>Answers: …</span>
       </div>
     </header>
 
-    <main class="grid">
-      <section class="card card-upload">
+    <main class="layout">
+      <section class="card card-upload" aria-labelledby="upload-heading">
         <div class="card-head">
           <div>
             <p class="card-kicker">Step 1</p>
-            <h2>Upload PDF</h2>
+            <h2 id="upload-heading">Build the graph</h2>
           </div>
-          <button id="upload-json-toggle" class="ghost-button" type="button">View JSON</button>
+          <button id="upload-json-toggle" class="ghost-button" type="button">JSON</button>
         </div>
 
         <form id="upload-form" class="stack">
-          <label class="upload-zone" for="pdf-file">
+          <label class="upload-zone" id="upload-zone" for="pdf-file">
             <input id="pdf-file" name="file" type="file" accept=".pdf" required />
-            <span class="upload-title">Choose a PDF</span>
-            <span class="upload-subtitle">Upload the document you want to convert into a knowledge graph.</span>
+            <svg class="upload-icon" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
+            <span class="upload-title" id="upload-title">Drop a PDF or click to choose</span>
+            <span class="upload-subtitle" id="upload-subtitle">Text is chunked, entities and relations are extracted with spaCy, and everything is stored as a graph.</span>
           </label>
-
-          <button id="upload-button" class="primary-button" type="submit">Build Knowledge Graph</button>
+          <button id="upload-button" class="primary-button" type="submit">Build knowledge graph</button>
         </form>
+
+        <ol class="pipeline hidden" id="pipeline">
+          <li data-step="read">Reading PDF text</li>
+          <li data-step="chunk">Chunking into passages</li>
+          <li data-step="extract">Extracting entities &amp; relations</li>
+          <li data-step="store">Storing graph + embeddings</li>
+        </ol>
 
         <div id="upload-status" class="status-box muted">No PDF uploaded yet.</div>
 
         <div id="upload-summary" class="summary-box hidden">
-          <h3>Upload Result</h3>
           <p id="upload-message" class="result-text"></p>
           <div class="summary-stats">
-            <div>
-              <span class="summary-label">Chunks</span>
-              <strong id="upload-chunks">0</strong>
-            </div>
-            <div>
-              <span class="summary-label">Knowledge Items</span>
-              <strong id="upload-triples">0</strong>
-            </div>
+            <div><span class="summary-label">Chunks</span><strong id="upload-chunks">0</strong></div>
+            <div><span class="summary-label">Relations</span><strong id="upload-triples">0</strong></div>
+            <div><span class="summary-label">Mentions</span><strong id="upload-mentions">0</strong></div>
           </div>
+          <div class="sample-triples" id="sample-triples"></div>
         </div>
 
         <div id="upload-json-panel" class="json-panel hidden">
-          <h3>Upload JSON</h3>
           <div class="json-split">
-            <div>
-              <p class="json-label">Input</p>
-              <pre id="upload-json-input">{}</pre>
-            </div>
-            <div>
-              <p class="json-label">Output</p>
-              <pre id="upload-json-content">{}</pre>
-            </div>
+            <div><p class="json-label">Input</p><pre id="upload-json-input">{}</pre></div>
+            <div><p class="json-label">Output</p><pre id="upload-json-content">{}</pre></div>
           </div>
         </div>
       </section>
 
-      <section class="card card-ask">
+      <section class="card card-ask" aria-labelledby="ask-heading">
         <div class="card-head">
           <div>
             <p class="card-kicker">Step 2</p>
-            <h2>Ask Questions</h2>
+            <h2 id="ask-heading">Ask the graph</h2>
           </div>
-          <button id="ask-json-toggle" class="ghost-button" type="button">View JSON</button>
+          <button id="ask-json-toggle" class="ghost-button" type="button">JSON</button>
         </div>
 
-        <form id="ask-form" class="stack">
-          <label class="field-label" for="question-input">Question</label>
-          <textarea
-            id="question-input"
-            name="question"
-            rows="4"
-            placeholder="Ask something about the uploaded document..."
-            required
-          ></textarea>
-          <button id="ask-button" class="primary-button" type="submit">Ask the Graph</button>
+        <div class="conversation" id="conversation">
+          <div class="empty-state" id="empty-state">
+            <p>Upload a PDF, then try questions like:</p>
+            <div class="suggestions" id="suggestions">
+              <button type="button" class="chip">What is this PDF about?</button>
+              <button type="button" class="chip">Who founded the company X works at?</button>
+              <button type="button" class="chip">Where is the company that X works for based?</button>
+            </div>
+          </div>
+        </div>
+
+        <form id="ask-form" class="ask-form">
+          <label class="sr-only" for="question-input">Question</label>
+          <textarea id="question-input" name="question" rows="2" placeholder="Ask something about the uploaded document…" required></textarea>
+          <button id="ask-button" class="primary-button" type="submit">Ask</button>
         </form>
-
-        <div id="ask-status" class="status-box muted">Ask a question after uploading a PDF.</div>
-
-        <div id="answer-panel" class="answer-box hidden">
-          <h3>Answer</h3>
-          <p id="answer-text" class="result-text"></p>
-        </div>
+        <div id="ask-status" class="status-line muted">Ask a question after uploading a PDF.</div>
 
         <div id="ask-json-panel" class="json-panel hidden">
-          <h3>Query JSON</h3>
           <div class="json-split">
-            <div>
-              <p class="json-label">Input</p>
-              <pre id="ask-json-input">{}</pre>
-            </div>
-            <div>
-              <p class="json-label">Output</p>
-              <pre id="ask-json-content">{}</pre>
-            </div>
+            <div><p class="json-label">Input</p><pre id="ask-json-input">{}</pre></div>
+            <div><p class="json-label">Output</p><pre id="ask-json-content">{}</pre></div>
           </div>
         </div>
+      </section>
+
+      <section class="card card-graph" aria-labelledby="graph-heading">
+        <div class="card-head">
+          <div>
+            <p class="card-kicker">Explore</p>
+            <h2 id="graph-heading">Graph view</h2>
+          </div>
+          <div class="graph-tools">
+            <input id="graph-filter" type="search" placeholder="Find entity…" aria-label="Find entity" />
+            <button id="graph-refresh" class="ghost-button" type="button">Refresh</button>
+          </div>
+        </div>
+        <div class="graph-wrap">
+          <svg id="graph-canvas" role="img" aria-label="Knowledge graph visualisation"></svg>
+          <div class="graph-empty" id="graph-empty">The graph appears here after an upload.</div>
+          <div class="graph-tooltip hidden" id="graph-tooltip"></div>
+        </div>
+        <p class="graph-legend"><span class="legend-dot anchor"></span>question entity <span class="legend-dot hop1"></span>1 hop <span class="legend-dot hop2"></span>2+ hops <span class="legend-meta" id="graph-meta"></span></p>
       </section>
     </main>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=2"></script>
 </body>
 </html>
