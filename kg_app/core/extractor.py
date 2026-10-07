@@ -21,7 +21,7 @@ from kg_app.core.utils import (
 )
 
 ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
-load_dotenv(dotenv_path=ENV_PATH, override=True)
+load_dotenv(dotenv_path=ENV_PATH, override=False)
 
 NOISY_RELATIONS = {
     "IS",

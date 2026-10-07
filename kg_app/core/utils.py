@@ -481,7 +481,7 @@ def load_env() -> None:
     from dotenv import load_dotenv
     from pathlib import Path
 
-    load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=True)
+    load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=False)
 
 
 def normalise_cypher_response(text: str) -> str:
