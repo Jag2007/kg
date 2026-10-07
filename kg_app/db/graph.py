@@ -395,21 +395,35 @@ class BaseGraphStore:
         return index
 
     def get_graph_data(self, document_id: str, limit: int = 150) -> dict:
-        """Nodes + edges for the frontend visualisation."""
-        rows = sorted(self._load_document_triples(document_id), key=lambda row: -float(row.get("confidence", 0) or 0))
+        """Best-connected part of the graph for the frontend visualisation."""
+        rows = self._load_document_triples(document_id)
         degree: dict[str, int] = defaultdict(int)
         display: dict[str, str] = {}
-        edges = []
-        for row in rows[:limit]:
+        for row in rows:
+            for name in (row["subject"], row["object"]):
+                key = canonical_key(name)
+                display.setdefault(key, name)
+                degree[key] += 1
+        # Keep the hubs: isolated pairs make the picture unreadable.
+        max_nodes = max(10, min(limit, 400)) // 2
+        keep = set(sorted(degree, key=lambda key: -degree[key])[:max_nodes])
+        edges, seen = [], set()
+        for row in sorted(rows, key=lambda row: -float(row.get("confidence", 0) or 0)):
             source, target = canonical_key(row["subject"]), canonical_key(row["object"])
-            display.setdefault(source, row["subject"])
-            display.setdefault(target, row["object"])
-            degree[source] += 1
-            degree[target] += 1
-            edges.append({"source": source, "target": target, "relation": row["relation"]})
-        nodes = [{"id": key, "label": display[key], "degree": degree[key]} for key in display]
-        return {"nodes": nodes, "edges": edges, "backend": self.backend}
-
+            if source in keep and target in keep and (source, target) not in seen:
+                seen.add((source, target))
+                edges.append({"source": source, "target": target, "relation": row["relation"]})
+            if len(edges) >= limit:
+                break
+        connected = {edge["source"] for edge in edges} | {edge["target"] for edge in edges}
+        nodes = [{"id": key, "label": display[key], "degree": degree[key]} for key in connected]
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "backend": self.backend,
+            "total_entities": len(degree),
+            "total_relations": len(rows),
+        }
 
 class EmbeddedGraphStore(BaseGraphStore):
     """Single JSON file. Good for local dev without Docker and for small deploys."""
