@@ -1999,6 +1999,8 @@ def _overview_answer(question: str, document_id: str, response: dict) -> dict:
         )
         if written and written != answer_llm.NOT_FOUND_ANSWER:
             answer, mode = written, f"llm:{answer_llm.model_name()}"
+    if not answer and response.get("results") and str(response.get("answer", "")).strip():
+        answer = str(response["answer"]).strip()
     if not answer and passages:
         answer = "The document covers: " + " ".join(passages[:3])
     if answer:
@@ -2025,7 +2027,7 @@ def ask_question(question: str, document_id: str) -> dict:
         evidence = {"anchors": [], "nodes": [], "edges": [], "chunk_boost": {}, "query": ""}
 
     facts = _evidence_facts(evidence) if evidence["edges"] else []
-    passages = _evidence_passages(question, document_id, evidence) if evidence["anchors"] or base_failed else []
+    passages = _evidence_passages(question, document_id, evidence)
     answer_mode = "rules"
 
     if answer_llm.is_available() and (facts or passages):
@@ -2033,9 +2035,10 @@ def ask_question(question: str, document_id: str) -> dict:
             question,
             facts,
             [passage["text"] for passage in passages],
-            draft="" if base_failed else answer,
         )
-        if written and (written != answer_llm.NOT_FOUND_ANSWER or base_failed):
+        # A raw chunk dump from the rule engine is weaker evidence than the model's refusal.
+        chunk_dump = answer.startswith("Based on the uploaded document:")
+        if written and (written != answer_llm.NOT_FOUND_ANSWER or base_failed or chunk_dump):
             answer = written
             answer_mode = f"llm:{answer_llm.model_name()}"
     elif base_failed:

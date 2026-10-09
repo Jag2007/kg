@@ -22,7 +22,7 @@ def _base_url() -> str:
 
 
 def model_name() -> str:
-    return os.environ.get("OLLAMA_MODEL", "gemma3:1b")
+    return os.environ.get("OLLAMA_MODEL", "qwen2.5:3b")
 
 
 def is_available() -> bool:
@@ -64,7 +64,8 @@ Rules:
 - Use only the facts and passages above. Never use outside knowledge.
 - For questions that need several steps, chain the facts (e.g. A works at B, B is in C -> A is in C) and say the chain briefly.
 - Answer in 1-4 plain sentences. No bullet points, no mention of "facts", "passages" or "graph".
-- If the evidence does not answer the question, reply exactly: {NOT_FOUND_ANSWER}
+- The answer is often a short detail inside a passage (a number, a name, a port, a date). Look carefully before giving up.
+- Only if nothing above is related to the question, reply exactly: {NOT_FOUND_ANSWER}
 
 Answer:"""
 
@@ -72,9 +73,13 @@ Answer:"""
 def generate_answer(question: str, facts: list[str], passages: list[str], draft: str = "") -> str:
     if not facts and not passages:
         return ""
+    return _complete(_build_prompt(question, facts, passages, draft))
+
+
+def _complete(prompt: str) -> str:
     payload = {
         "model": model_name(),
-        "prompt": _build_prompt(question, facts, passages, draft),
+        "prompt": prompt,
         "stream": False,
         "options": {
             "temperature": 0.1,
