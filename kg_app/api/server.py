@@ -1084,7 +1084,7 @@ async def health():
     graph_backend = active_backend_name()
     try:
         graph = GraphStore()
-        graph_backend = graph.backend
+        graph_backend = getattr(graph, "backend", "custom")
         graph.close()
     except Exception as error:
         graph_backend = f"unavailable: {error}"
@@ -1206,7 +1206,7 @@ async def upload_pdf(file: UploadFile = File(...)):
 
         graph = GraphStore()
         document_id = str(uuid.uuid4())
-        _backend_log(f"Created document id {document_id} using the {graph.backend} graph backend.")
+        _backend_log(f"Created document id {document_id} using the {getattr(graph, 'backend', 'custom')} graph backend.")
         extractor_mode = _extractor_mode()
         extraction_chunks = all_chunks
         all_triples: list[dict] = []
@@ -1267,9 +1267,9 @@ async def upload_pdf(file: UploadFile = File(...)):
         summary = build_document_summary(file.filename, all_triples)
         graph.store_document(document_id, file.filename, summary)
         triples_added = graph.insert_triples(all_triples, document_id)
-        mention_count = graph.store_mentions(document_id, mentions) if mentions else 0
+        mention_count = graph.store_mentions(document_id, mentions) if mentions and hasattr(graph, "store_mentions") else 0
         _backend_log(
-            f"Stored document summary, {triples_added} triples and {mention_count} chunk mentions in {graph.backend}."
+            f"Stored document summary, {triples_added} triples and {mention_count} chunk mentions in {getattr(graph, 'backend', 'custom')}."
         )
         save_document_chunks(document_id, file.filename, all_chunks)
         set_active_document(document_id, file.filename)
@@ -1309,7 +1309,7 @@ async def upload_pdf(file: UploadFile = File(...)):
                 "document_id": document_id,
                 "summary": summary,
                 "extractor": extractor_mode,
-                "graph_backend": graph.backend,
+                "graph_backend": getattr(graph, "backend", "custom"),
                 "entity_mentions": sum(len(v) for v in mentions.values()),
             },
         }

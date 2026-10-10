@@ -178,6 +178,8 @@ class AppSmokeTests(unittest.TestCase):
         self.client = TestClient(app.app)
 
     def tearDown(self):
+        if os.environ.get("HEBBRIX_API_KEY") == "test-key":
+            os.environ.pop("HEBBRIX_API_KEY", None)
         if self.original_hebbrix_native_mode is None:
             os.environ.pop("HEBBRIX_NATIVE_MODE", None)
         else:
@@ -328,6 +330,7 @@ class AppSmokeTests(unittest.TestCase):
 
     def test_hebbrix_answers_are_limited_to_active_document_results(self):
         os.environ["HEBBRIX_NATIVE_MODE"] = "1"
+        os.environ.setdefault("HEBBRIX_API_KEY", "test-key")
         self._set_active_document("hebbrix:col-1:doc-1", "biology.pdf")
         app_server._search_hebbrix_reason = lambda question, collection_id, include_steps=True: {
             "answer": "Biology studies life and living organisms.",
@@ -355,6 +358,7 @@ class AppSmokeTests(unittest.TestCase):
 
     def test_hebbrix_rejects_questions_not_supported_by_uploaded_document(self):
         os.environ["HEBBRIX_NATIVE_MODE"] = "1"
+        os.environ.setdefault("HEBBRIX_API_KEY", "test-key")
         self._set_active_document("hebbrix:col-1:doc-1", "biology.pdf")
         app_server._search_hebbrix_reason = lambda question, collection_id, include_steps=True: {
             "answer": "Biology studies life and living organisms.",
@@ -390,6 +394,7 @@ class AppSmokeTests(unittest.TestCase):
 
     def test_hebbrix_reason_answers_definition_questions_before_chat_fallback(self):
         os.environ["HEBBRIX_NATIVE_MODE"] = "1"
+        os.environ.setdefault("HEBBRIX_API_KEY", "test-key")
         self._set_active_document("hebbrix:col-1:doc-1", "rl.pdf")
         app_server._search_hebbrix_reason = lambda question, collection_id, include_steps=True: {
             "answer": (
@@ -429,6 +434,7 @@ class AppSmokeTests(unittest.TestCase):
 
     def test_hebbrix_definition_questions_fall_back_when_reason_is_not_grounded(self):
         os.environ["HEBBRIX_NATIVE_MODE"] = "1"
+        os.environ.setdefault("HEBBRIX_API_KEY", "test-key")
         self._set_active_document("hebbrix:col-1:doc-1", "rl.pdf")
         app_server._search_hebbrix_reason = lambda question, collection_id, include_steps=True: {
             "answer": "The constitution is the supreme law of the land.",
@@ -479,6 +485,7 @@ class AppSmokeTests(unittest.TestCase):
 
     def test_hebbrix_overview_questions_use_document_overview_path(self):
         os.environ["HEBBRIX_NATIVE_MODE"] = "1"
+        os.environ.setdefault("HEBBRIX_API_KEY", "test-key")
         self._set_active_document("hebbrix:col-1:doc-1", "dl.pdf")
         app_server._fetch_hebbrix_chunks = lambda document_id: [
             {
