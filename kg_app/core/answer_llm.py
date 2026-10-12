@@ -1,9 +1,15 @@
 """
-Optional answer writer backed by a local Ollama model.
+Optional answer writer.
 
 The graph and the chunk search decide *what* the answer is built from; the
-model only turns that evidence into a readable answer. When Ollama is not
-running (or KG_ANSWER_LLM=none) callers fall back to the rule-based answer.
+model only turns that evidence into a readable answer.
+
+KG_ANSWER_LLM:
+    auto    - local Ollama when it is running (default)
+    ollama  - local Ollama
+    openai  - any OpenAI-compatible endpoint (OPENAI_BASE_URL / OPENAI_API_KEY),
+              useful on hosts that cannot run a local model
+    none    - rule-based answers only
 """
 
 import os
@@ -21,14 +27,22 @@ def _base_url() -> str:
     return os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 
 
+def _mode() -> str:
+    return os.environ.get("KG_ANSWER_LLM", "auto").strip().lower()
+
+
 def model_name() -> str:
+    if _mode() == "openai":
+        return os.environ.get("OPENAI_ANSWER_MODEL", "gpt-4o-mini")
     return os.environ.get("OLLAMA_MODEL", "qwen2.5:3b")
 
 
 def is_available() -> bool:
-    mode = os.environ.get("KG_ANSWER_LLM", "auto").strip().lower()
+    mode = _mode()
     if mode in {"none", "off", "0", "false"}:
         return False
+    if mode == "openai":
+        return bool(os.environ.get("OPENAI_API_KEY"))
     now = time.time()
     if now - _STATUS_CACHE["checked_at"] < _STATUS_TTL_SECONDS:
         return _STATUS_CACHE["ok"]
@@ -76,7 +90,33 @@ def generate_answer(question: str, facts: list[str], passages: list[str], draft:
     return _complete(_build_prompt(question, facts, passages, draft))
 
 
+def _complete_openai(prompt: str) -> str:
+    base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    response = requests.post(
+        f"{base_url}/chat/completions",
+        headers={"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}"},
+        json={
+            "model": model_name(),
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+            "max_tokens": int(os.environ.get("OLLAMA_MAX_TOKENS", "220")),
+        },
+        timeout=int(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "90")),
+    )
+    response.raise_for_status()
+    return str(response.json()["choices"][0]["message"]["content"] or "")
+
+
 def _complete(prompt: str) -> str:
+    if _mode() == "openai":
+        try:
+            text = _complete_openai(prompt).strip()
+        except Exception as error:
+            print(f"[answer_llm] OpenAI-compatible call failed: {error}", flush=True)
+            return ""
+        if NOT_FOUND_ANSWER.lower().rstrip(".") in text.lower():
+            return NOT_FOUND_ANSWER
+        return text.strip('"').strip()
     payload = {
         "model": model_name(),
         "prompt": prompt,
