@@ -1934,33 +1934,77 @@ def _evidence_passages(question: str, document_id: str, evidence: dict) -> list[
     return passages
 
 
-def _chain_answer(question: str, evidence: dict) -> str:
-    """Rule-based multi-hop answer: follow the best path to a far entity."""
+def _edge_sentence(edge: dict) -> str:
+    sentence = f"{edge['from']} {_relation_phrase(edge['relation'])} {edge['to']}"
+    return sentence[0].upper() + sentence[1:]
+
+
+_CHAIN_QUESTION = re.compile(
+    r"\bthe\s+\w+\s+(that|which|who|where|whose)\b"
+    r"|\b(used|managed|led|run|owned|founded|built|created|hosted|acquired|developed)\s+by\b",
+    re.IGNORECASE,
+)
+
+
+def _needs_chain(question: str) -> bool:
+    return _is_multi_hop_question(question, _extract_relation_groups(question)) or bool(_CHAIN_QUESTION.search(question))
+
+
+def _chain_answer(question: str, evidence: dict, require_relation_match: bool = False) -> str:
+    """
+    Rule-based multi-hop answer: walk typed relations outward from the question's
+    entity (co-mention links are ignored here) and return the best chain.
+
+    Chains whose final relation matches the question ("who founded ..." ->
+    FOUNDED) win; ties go to shorter, higher-scoring chains.
+    """
     question_tokens = set(_tokenize_value(question))
     typed_edges = [edge for edge in evidence["edges"] if edge["relation"] != "CO_MENTIONED"]
-    targets = [
-        node
-        for node in evidence["nodes"]
-        if node["distance"] >= 2 and not (set(_tokenize_value(node["name"])) & question_tokens)
-    ]
-    for node in sorted(targets, key=lambda item: -item["score"]):
-        chain = node["via"] + [node["name"]]
-        sentences = []
-        for left, right in zip(chain, chain[1:]):
-            edge = next(
-                (
-                    item
-                    for item in typed_edges
-                    if {item["from"].lower(), item["to"].lower()} == {left.lower(), right.lower()}
-                ),
-                None,
-            )
-            if edge is None:
-                break
-            sentences.append(f"{edge['from']} {_relation_phrase(edge['relation'])} {edge['to']}")
-        if len(sentences) == len(chain) - 1 and sentences:
-            return ". ".join(sentence[0].upper() + sentence[1:] for sentence in sentences) + "."
-    return ""
+    adjacency: dict[str, list[tuple[str, dict]]] = {}
+    for edge in typed_edges:
+        left, right = edge["from"].lower(), edge["to"].lower()
+        adjacency.setdefault(left, []).append((right, edge))
+        adjacency.setdefault(right, []).append((left, edge))
+
+    def matched_tokens(edge: dict) -> set[str]:
+        tokens = [t for t in edge["relation"].lower().split("_") if len(t) > 2]
+        return {q for q in question_tokens if any(_tokens_match(q, t) for t in tokens)}
+
+    candidates = []
+    direct_match = False
+    for anchor in evidence.get("anchors", [])[:3]:
+        if any(matched_tokens(edge) for _, edge in adjacency.get(anchor.lower(), [])):
+            direct_match = True
+        frontier = [(anchor.lower(), [])]
+        visited = {anchor.lower()}
+        for depth in range(1, 4):
+            next_frontier = []
+            for node, path in frontier:
+                for neighbour, edge in adjacency.get(node, []):
+                    if neighbour in visited:
+                        continue
+                    visited.add(neighbour)
+                    chain = path + [edge]
+                    next_frontier.append((neighbour, chain))
+                    if depth < 2 or set(_tokenize_value(neighbour)) & question_tokens:
+                        continue
+                    final_tokens = matched_tokens(edge)
+                    # Middle relations must match *other* question words ("works" ... "founded").
+                    middle_tokens = set().union(*(matched_tokens(step) for step in chain[:-1])) - final_tokens
+                    score = sum(float(step.get("score", 0.5) or 0.5) for step in chain) / len(chain)
+                    candidates.append((bool(final_tokens), len(middle_tokens), -depth, score, chain))
+            frontier = next_frontier
+
+    # The anchor already has an edge the question asks about and no chain uses extra
+    # question words: this is a single-hop question for the rule engine.
+    if direct_match:
+        candidates = [item for item in candidates if item[0] and item[1] > 0]
+    if require_relation_match:
+        candidates = [item for item in candidates if item[0]]
+    if not candidates:
+        return ""
+    chain = max(candidates, key=lambda item: (item[0], item[1] > 0, item[2], item[1], item[3]))[-1]
+    return ". ".join(_edge_sentence(edge) for edge in chain) + "."
 
 
 def _readable_sentence(sentence: str) -> bool:
@@ -2041,11 +2085,13 @@ def ask_question(question: str, document_id: str) -> dict:
         if written and (written != answer_llm.NOT_FOUND_ANSWER or base_failed or chunk_dump):
             answer = written
             answer_mode = f"llm:{answer_llm.model_name()}"
-    elif base_failed:
-        chained = _chain_answer(question, evidence)
-        if chained:
-            answer = chained
-            answer_mode = "graph-chain"
+    else:
+        # Without a model, a direction-aware graph chain reads better than the path dump.
+        if base_failed or _needs_chain(question):
+            chained = _chain_answer(question, evidence, require_relation_match=not base_failed)
+            if chained:
+                answer = chained
+                answer_mode = "graph-chain"
 
     if base_failed and answer_mode != "rules" and answer != answer_llm.NOT_FOUND_ANSWER:
         response["results"] = evidence["edges"][:10] or passages
