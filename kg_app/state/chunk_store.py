@@ -1,9 +1,12 @@
 import json
+import os
 from pathlib import Path
 
 from kg_app.core.embeddings import embed_text
 
-STATE_PATH = Path(__file__).resolve().parent / ".document_chunks.json"
+STATE_DIR = Path(os.environ.get("KG_STATE_DIR", Path(__file__).resolve().parent))
+STATE_DIR.mkdir(parents=True, exist_ok=True)
+STATE_PATH = STATE_DIR / ".document_chunks.json"
 
 
 def _load_payload() -> dict:

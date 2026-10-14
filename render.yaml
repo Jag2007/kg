@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: kg-studio
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      # embedded = JSON graph on local disk (resets on redeploy). Set NEO4J_URI etc. and
+      # KG_GRAPH_BACKEND=auto to use a hosted Neo4j instead.
+      - key: KG_GRAPH_BACKEND
+        value: embedded
+      - key: KG_EXTRACTOR
+        value: spacy
+      # Hash embeddings keep the free instance under its memory limit.
+      - key: KG_EMBEDDING_BACKEND
+        value: local
+      # No local model on Render. Use "openai" + OPENAI_API_KEY / OPENAI_BASE_URL for an
+      # OpenAI-compatible answer writer, or leave "none" for rule-based answers.
+      - key: KG_ANSWER_LLM
+        value: none
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        sync: false
+      - key: OPENAI_ANSWER_MODEL
+        sync: false

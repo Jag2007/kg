@@ -1,0 +1,5 @@
+# Everything for running on your own machine: deploy deps + transformer embeddings + tests.
+-r requirements.txt
+sentence-transformers>=2.7.0
+pytest
+httpx

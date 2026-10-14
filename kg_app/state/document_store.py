@@ -1,7 +1,10 @@
 import json
+import os
 from pathlib import Path
 
-STATE_PATH = Path(__file__).resolve().parent / ".active_document.json"
+STATE_DIR = Path(os.environ.get("KG_STATE_DIR", Path(__file__).resolve().parent))
+STATE_DIR.mkdir(parents=True, exist_ok=True)
+STATE_PATH = STATE_DIR / ".active_document.json"
 
 
 def set_active_document(document_id: str, file_name: str) -> None:
