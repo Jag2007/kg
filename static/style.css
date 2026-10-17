@@ -96,6 +96,7 @@ body {
   border-radius: 999px;
   background: var(--surface);
   color: var(--text-2);
+  box-shadow: 0 1px 2px rgba(74, 40, 24, 0.04);
   font-size: 12.5px;
   font-weight: 500;
 }
@@ -152,7 +153,9 @@ body {
   padding: 12px 18px;
   font-weight: 600;
 }
-.primary-button:hover:not(:disabled) { filter: brightness(1.06); }
+.primary-button { box-shadow: 0 4px 12px rgba(122, 31, 43, 0.22); letter-spacing: 0.01em; }
+.primary-button:hover:not(:disabled) { background: var(--accent-hover); }
+.primary-button:active:not(:disabled) { transform: translateY(1px); }
 .primary-button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .ghost-button {
@@ -163,7 +166,7 @@ body {
   padding: 6px 12px;
   font-size: 13px; font-weight: 500;
 }
-.ghost-button:hover { border-color: var(--text-3); color: var(--text); }
+.ghost-button:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 
 .chip {
   border: 1px solid var(--border);
@@ -173,7 +176,8 @@ body {
   padding: 6px 12px;
   font-size: 13px;
 }
-.chip:hover { border-color: var(--accent); color: var(--accent); }
+.chip { background: var(--surface); }
+.chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 
 /* ---------- upload ---------- */
 .upload-zone {
@@ -181,9 +185,11 @@ body {
   display: grid; justify-items: center; gap: 6px;
   text-align: center;
   padding: 26px 18px;
-  border: 1.5px dashed var(--border);
-  border-radius: 14px;
-  background: var(--surface-2);
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 16px;
+  background:
+    repeating-linear-gradient(135deg, transparent 0 12px, rgba(122, 31, 43, 0.025) 12px 24px),
+    var(--surface-2);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
@@ -264,7 +270,8 @@ body {
 .bubble-q {
   justify-self: end;
   max-width: 85%;
-  background: var(--accent);
+  background: linear-gradient(145deg, #8a2633, var(--accent));
+  box-shadow: 0 4px 12px rgba(122, 31, 43, 0.18);
   color: var(--accent-text);
   padding: 10px 14px;
   border-radius: 14px 14px 4px 14px;
@@ -272,7 +279,8 @@ body {
 }
 .bubble-a {
   max-width: 100%;
-  background: var(--surface-2);
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(74, 40, 24, 0.04);
   border: 1px solid var(--border);
   padding: 12px 14px;
   border-radius: 14px 14px 14px 4px;
@@ -285,7 +293,7 @@ body {
   padding: 3px 8px; border-radius: 999px;
   border: 1px solid var(--border); color: var(--text-2); background: var(--surface);
 }
-.badge.llm { color: var(--hop1); border-color: currentColor; }
+.badge.llm { color: var(--accent); border-color: currentColor; background: var(--accent-soft); }
 .badge.chain { color: var(--hop2); border-color: currentColor; }
 
 details.evidence { margin-top: 10px; font-size: 13.5px; }
@@ -301,7 +309,7 @@ details.evidence summary { cursor: pointer; color: var(--accent); font-weight: 5
 }
 .hop-tag.h2 { color: var(--hop2); border-color: currentColor; }
 .passage {
-  border-left: 3px solid var(--border);
+  border-left: 3px solid var(--accent-soft);
   padding: 4px 0 4px 10px;
   color: var(--text-2);
 }
@@ -323,7 +331,10 @@ details.evidence summary { cursor: pointer; color: var(--accent); font-weight: 5
   color: var(--text);
 }
 .ask-form textarea:focus, .graph-tools input:focus {
-  outline: 2px solid var(--accent-soft); border-color: var(--accent);
+  outline: 3px solid var(--accent-soft); border-color: var(--accent);
+}
+.primary-button:focus-visible, .ghost-button:focus-visible, .chip:focus-visible, .upload-zone:focus-within {
+  outline: 3px solid var(--accent-soft); outline-offset: 2px;
 }
 .status-line { margin-top: 8px; font-size: 13px; }
 
