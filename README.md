@@ -110,6 +110,9 @@ on the host.
 
 ## Deploy (Render)
 
+Step-by-step instructions, including the optional Vercel + Render split, are in [DEPLOY.md](DEPLOY.md).
+
+
 `render.yaml` deploys the app as a free web service:
 - graph: embedded store
 - embeddings: hash

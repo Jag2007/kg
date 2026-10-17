@@ -28,3 +28,6 @@ services:
         sync: false
       - key: OPENAI_ANSWER_MODEL
         sync: false
+      # Only for a split deploy: the frontend's URL, e.g. https://kg-xxxx.vercel.app
+      - key: KG_CORS_ORIGINS
+        sync: false
