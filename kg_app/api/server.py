@@ -34,6 +34,18 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 STATIC_DIR = BASE_DIR / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+# Only needed when the frontend is hosted separately (e.g. Vercel) from this API.
+_cors_origins = [origin.strip() for origin in os.environ.get("KG_CORS_ORIGINS", "").split(",") if origin.strip()]
+if _cors_origins:
+    from fastapi.middleware.cors import CORSMiddleware
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
+
 UPLOAD_TARGET_WORDS = int(os.environ.get("KG_TARGET_WORDS", "550"))
 UPLOAD_MIN_WORDS = int(os.environ.get("KG_MIN_WORDS", "380"))
 UPLOAD_MAX_WORDS = int(os.environ.get("KG_MAX_WORDS", "700"))
@@ -1585,3 +1597,7 @@ async def ask(q: QuestionRequest):
                 "trace": traceback.format_exc(),
             },
         }
+
+
+# Frontend assets (style.css, app.js, config.js) at the site root. Mounted last so API routes win.
+app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")

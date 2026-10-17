@@ -1,4 +1,6 @@
 const $ = (id) => document.getElementById(id);
+const API_BASE = String(window.KG_API_BASE || "").replace(/\/$/, "");
+const api = (path) => `${API_BASE}${path}`;
 
 const uploadForm = $("upload-form");
 const askForm = $("ask-form");
@@ -56,7 +58,7 @@ function setPill(id, label, value, state) {
 
 async function loadHealth() {
   try {
-    const response = await fetch("/health");
+    const response = await fetch(api("/health"));
     const data = await response.json();
     const backend = String(data.graph_backend || "unknown");
     setPill("pill-graph", "Graph", backend === "neo4j" ? "Neo4j" : backend === "embedded" ? "Embedded" : backend,
@@ -162,7 +164,7 @@ uploadForm.addEventListener("submit", async (event) => {
   startPipeline();
 
   try {
-    const response = await fetch("/upload_pdf", { method: "POST", body: formData });
+    const response = await fetch(api("/upload_pdf"), { method: "POST", body: formData });
     const data = await response.json();
     $("upload-json-content").textContent = prettyJson(data);
 
@@ -252,7 +254,7 @@ async function ask(question) {
   $("ask-json-input").textContent = prettyJson(requestBody);
   const startedAt = performance.now();
   try {
-    const response = await fetch("/ask", {
+    const response = await fetch(api("/ask"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
@@ -319,7 +321,7 @@ function svgEl(name, attrs = {}) {
 
 async function loadGraph() {
   try {
-    const response = await fetch("/graph?limit=180");
+    const response = await fetch(api("/graph?limit=180"));
     const data = await response.json();
     buildGraph(data);
     updateSuggestions(data.nodes || []);
