@@ -375,8 +375,10 @@ function buildGraph(data) {
   nodes.forEach((node) => {
     const radius = Math.min(14, 4 + Math.sqrt(node.degree || 1) * 2);
     node.r = radius;
-    node.el = svgEl("circle", { r: radius });
-    node.textEl = svgEl("text", { dy: -radius - 3, "text-anchor": "middle" });
+    const degree = node.degree || 1;
+    const tier = degree >= 12 ? 4 : degree >= 6 ? 3 : degree >= 3 ? 2 : 1;
+    node.el = svgEl("circle", { r: radius, class: `tier-${tier}` });
+    node.textEl = svgEl("text", { dy: -radius - 3, "text-anchor": "middle", class: tier >= 3 ? "hub" : "" });
     node.textEl.textContent = String(node.label).slice(0, 28);
     node.textEl.style.display = (node.degree || 0) >= 3 ? "" : "none";
     node.el.addEventListener("mouseenter", (event) => showTooltip(node, event));
