@@ -322,9 +322,25 @@ async function loadGraph() {
     const response = await fetch("/graph?limit=180");
     const data = await response.json();
     buildGraph(data);
+    updateSuggestions(data.nodes || []);
   } catch (error) {
     $("graph-empty").textContent = "Could not load the graph.";
   }
+}
+
+function updateSuggestions(nodes) {
+  // Suggest questions about the document's best-connected, readable entities.
+  const readable = nodes
+    .filter((node) => /^[A-Za-z][\w .'-]{2,30}$/.test(node.label) && !/^\$/.test(node.label))
+    .sort((a, b) => (b.degree || 0) - (a.degree || 0))
+    .slice(0, 2)
+    .map((node) => node.label);
+  const questions = ["What is this PDF about?"];
+  if (readable[0]) questions.push(`What is ${readable[0]}?`);
+  if (readable[1]) questions.push(`How is ${readable[0]} related to ${readable[1]}?`);
+  $("suggestions").innerHTML = questions
+    .map((question) => `<button type="button" class="chip">${escapeHtml(question)}</button>`)
+    .join("");
 }
 
 function buildGraph(data) {
