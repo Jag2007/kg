@@ -32,7 +32,11 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #f9ecdf 0%, transparent 60%),
+    radial-gradient(900px 500px at 110% 0%, #f1e0d6 0%, transparent 55%),
+    var(--bg);
   color: var(--text);
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 15px;
@@ -54,25 +58,33 @@ body {
 
 /* ---------- top bar ---------- */
 .topbar {
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
-  margin-bottom: 24px;
+  margin-bottom: 26px;
 }
 
 .brand { display: flex; align-items: center; gap: 14px; }
 
 .brand-mark {
-  width: 42px; height: 42px;
-  border-radius: 12px;
-  background: var(--accent);
+  width: 46px; height: 46px;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #8e2a37, var(--accent) 55%, #5a1520);
+  box-shadow: 0 6px 16px rgba(122, 31, 43, 0.25);
   display: grid; place-items: center;
 }
 .brand-mark svg { fill: var(--accent-text); stroke: var(--accent-text); stroke-width: 1.6; }
 
-.brand h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.brand h1 {
+  margin: 0;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 26px; font-weight: 600; letter-spacing: -0.015em;
+  color: var(--text);
+}
 .brand-sub { margin: 2px 0 0; color: var(--text-2); font-size: 13.5px; }
 
 .status-pills { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -116,11 +128,15 @@ body {
 }
 .card-kicker {
   margin: 0 0 2px;
-  color: var(--text-3);
+  color: var(--accent);
   font-size: 11.5px; font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.08em;
 }
-.card h2 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
+.card h2 {
+  margin: 0;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 21px; font-weight: 600; letter-spacing: -0.01em;
+}
 
 .stack { display: grid; gap: 12px; }
 
