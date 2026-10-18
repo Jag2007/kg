@@ -1,29 +1,29 @@
 :root {
-  /* Warm light theme: beige paper + deep maroon. Fixed light so it looks the same on every system. */
-  --bg: #f5efe4;
-  --bg-accent: #efe5d4;
-  --surface: #fffcf6;
-  --surface-2: #faf4ea;
-  --border: #e6d9c4;
-  --border-strong: #d6c4a8;
-  --text: #2a1a17;
-  --text-2: #6b5249;
-  --text-3: #9c8676;
-  --accent: #7a1f2b;
-  --accent-hover: #631823;
-  --accent-soft: #f4e2dc;
-  --accent-text: #fffaf3;
-  --ok: #4f7a3a;
-  --warn: #b7791f;
-  --err: #a8322d;
-  --hop0: #7a1f2b;
-  --hop1: #b4643c;
-  --hop2: #c9973a;
-  --node: #cdbca3;
-  --edge: #e0d2bb;
-  --code-bg: #2a1a17;
-  --code-text: #f3e9da;
-  --shadow: 0 1px 2px rgba(74, 40, 24, 0.05), 0 8px 24px rgba(74, 40, 24, 0.06);
+  /* Clean light theme: white paper + emerald. Fixed light so it looks the same on every system. */
+  --bg: #ffffff;
+  --bg-accent: #f0f7f4;
+  --surface: #ffffff;
+  --surface-2: #f6faf8;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-2: #475569;
+  --text-3: #94a3b8;
+  --accent: #047857;
+  --accent-hover: #065f46;
+  --accent-soft: #d1fae5;
+  --accent-text: #ffffff;
+  --ok: #10b981;
+  --warn: #d97706;
+  --err: #dc2626;
+  --hop0: #047857;
+  --hop1: #10b981;
+  --hop2: #0891b2;
+  --node: #cbd5e1;
+  --edge: #e2e8f0;
+  --code-bg: #0f172a;
+  --code-text: #d1fae5;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.05);
   --radius: 18px;
   color-scheme: light;
 }
@@ -34,8 +34,8 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(1200px 600px at 10% -10%, #f9ecdf 0%, transparent 60%),
-    radial-gradient(900px 500px at 110% 0%, #f1e0d6 0%, transparent 55%),
+    radial-gradient(1200px 600px at 10% -10%, #ecfdf5 0%, transparent 60%),
+    radial-gradient(900px 500px at 110% 0%, #f0fdf9 0%, transparent 55%),
     var(--bg);
   color: var(--text);
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -96,7 +96,7 @@ body {
   border-radius: 999px;
   background: var(--surface);
   color: var(--text-2);
-  box-shadow: 0 1px 2px rgba(74, 40, 24, 0.04);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   font-size: 12.5px;
   font-weight: 500;
 }
