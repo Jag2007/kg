@@ -73,8 +73,8 @@ body {
 .brand-mark {
   width: 46px; height: 46px;
   border-radius: 14px;
-  background: linear-gradient(145deg, #8e2a37, var(--accent) 55%, #5a1520);
-  box-shadow: 0 6px 16px rgba(122, 31, 43, 0.25);
+  background: linear-gradient(145deg, #059669, var(--accent) 55%, #065f46);
+  box-shadow: 0 6px 16px rgba(4, 120, 87, 0.25);
   display: grid; place-items: center;
 }
 .brand-mark svg { fill: var(--accent-text); stroke: var(--accent-text); stroke-width: 1.6; }
@@ -153,7 +153,7 @@ body {
   padding: 12px 18px;
   font-weight: 600;
 }
-.primary-button { box-shadow: 0 4px 12px rgba(122, 31, 43, 0.22); letter-spacing: 0.01em; }
+.primary-button { box-shadow: 0 4px 12px rgba(4, 120, 87, 0.22); letter-spacing: 0.01em; }
 .primary-button:hover:not(:disabled) { background: var(--accent-hover); }
 .primary-button:active:not(:disabled) { transform: translateY(1px); }
 .primary-button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -188,7 +188,7 @@ body {
   border: 1.5px dashed var(--border-strong);
   border-radius: 16px;
   background:
-    repeating-linear-gradient(135deg, transparent 0 12px, rgba(122, 31, 43, 0.025) 12px 24px),
+    repeating-linear-gradient(135deg, transparent 0 12px, rgba(4, 120, 87, 0.03) 12px 24px),
     var(--surface-2);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
@@ -270,8 +270,8 @@ body {
 .bubble-q {
   justify-self: end;
   max-width: 85%;
-  background: linear-gradient(145deg, #8a2633, var(--accent));
-  box-shadow: 0 4px 12px rgba(122, 31, 43, 0.18);
+  background: linear-gradient(145deg, #059669, var(--accent));
+  box-shadow: 0 4px 12px rgba(4, 120, 87, 0.18);
   color: var(--accent-text);
   padding: 10px 14px;
   border-radius: 14px 14px 4px 14px;
@@ -280,7 +280,7 @@ body {
 .bubble-a {
   max-width: 100%;
   background: var(--surface);
-  box-shadow: 0 1px 2px rgba(74, 40, 24, 0.04);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   border: 1px solid var(--border);
   padding: 12px 14px;
   border-radius: 14px 14px 14px 4px;
