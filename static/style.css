@@ -374,7 +374,7 @@ details.evidence summary { cursor: pointer; color: var(--accent); font-weight: 5
   border-radius: 16px;
   border: 1px solid var(--border);
   background:
-    radial-gradient(circle at 1px 1px, rgba(122, 31, 43, 0.07) 1px, transparent 0) 0 0 / 22px 22px,
+    radial-gradient(circle at 1px 1px, rgba(4, 120, 87, 0.08) 1px, transparent 0) 0 0 / 22px 22px,
     var(--surface-2);
   overflow: hidden;
 }
@@ -383,9 +383,9 @@ details.evidence summary { cursor: pointer; color: var(--accent); font-weight: 5
 #graph-canvas line { stroke: var(--edge); stroke-width: 1.2; }
 #graph-canvas line.hl { stroke: var(--accent); stroke-width: 2.4; }
 #graph-canvas circle { fill: var(--node); stroke: var(--surface); stroke-width: 1.5; cursor: pointer; transition: r 0.15s; }
-#graph-canvas circle.tier-2 { fill: #c4a68e; }
-#graph-canvas circle.tier-3 { fill: #a87a6a; }
-#graph-canvas circle.tier-4 { fill: #8f4f4f; }
+#graph-canvas circle.tier-2 { fill: #a7f3d0; }
+#graph-canvas circle.tier-3 { fill: #6ee7b7; }
+#graph-canvas circle.tier-4 { fill: #34d399; }
 #graph-canvas circle:hover { stroke: var(--accent); stroke-width: 2.5; }
 #graph-canvas circle.anchor { fill: var(--hop0); }
 #graph-canvas circle.hop1 { fill: var(--hop1); }
