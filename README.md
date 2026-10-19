@@ -80,7 +80,7 @@ Neo4j and Ollama are both optional:
 - If Neo4j isn't reachable, the app uses the embedded JSON graph store.
 - If Ollama isn't running, answers are rule-based.
 
-The status pills at the top of the page show what is live.
+`GET /health` shows which of them are live.
 
 To run the whole stack in containers instead, use `docker compose up --build`. Ollama still runs
 on the host.
