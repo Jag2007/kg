@@ -50,22 +50,11 @@ function relationText(relation) {
 
 /* ------------------------------------------------------------------ health */
 
-function setPill(id, label, value, state) {
-  const pill = $(id);
-  pill.className = `pill ${state}`;
-  pill.innerHTML = `<span class="dot"></span>${escapeHtml(label)}: ${escapeHtml(value)}`;
-}
-
 async function loadHealth() {
   try {
     const response = await fetch(api("/health"));
     const data = await response.json();
-    const backend = String(data.graph_backend || "unknown");
-    setPill("pill-graph", "Graph", backend === "neo4j" ? "Neo4j" : backend === "embedded" ? "Embedded" : backend,
-      backend === "neo4j" ? "ok" : backend === "embedded" ? "warn" : "err");
-    setPill("pill-extractor", "Extractor", data.hebbrix_mode ? "Hebbrix API" : data.spacy_ready ? "spaCy" : "spaCy missing",
-      data.spacy_ready || data.hebbrix_mode ? "ok" : "err");
-    setPill("pill-llm", "Answers", data.answer_llm ? data.answer_llm : "rule-based", data.answer_llm ? "ok" : "warn");
+    $("service-status").classList.add("hidden");
     if (data.active_document && data.active_document.document_id) {
       graphReady = true;
       setStatus(uploadStatus, `Active document: ${data.active_document.file_name}. Upload another PDF to replace it.`);
@@ -74,7 +63,7 @@ async function loadHealth() {
       loadGraph();
     }
   } catch (error) {
-    setPill("pill-graph", "Graph", "offline", "err");
+    $("service-status").classList.remove("hidden");
   }
 }
 
@@ -202,10 +191,8 @@ uploadForm.addEventListener("submit", async (event) => {
 /* --------------------------------------------------------------------- ask */
 
 function modeBadge(mode) {
-  if (!mode || mode === "rules") return `<span class="badge">rule-based</span>`;
-  if (mode.startsWith("llm:")) return `<span class="badge llm">written by ${escapeHtml(mode.slice(4))}</span>`;
   if (mode === "graph-chain") return `<span class="badge chain">multi-hop chain</span>`;
-  return `<span class="badge">${escapeHtml(mode)}</span>`;
+  return `<span class="badge">from the graph</span>`;
 }
 
 function renderEvidence(evidence) {
@@ -360,7 +347,7 @@ function buildGraph(data) {
   graphState.edges = edges;
   $("graph-empty").classList.toggle("hidden", nodes.length > 0);
   $("graph-meta").textContent = nodes.length
-    ? `showing ${nodes.length} of ${data.total_entities ?? nodes.length} entities · ${data.total_relations ?? edges.length} relations · ${data.backend || ""}`
+    ? `showing ${nodes.length} of ${data.total_entities ?? nodes.length} entities · ${data.total_relations ?? edges.length} relations`
     : "";
   if (!nodes.length) return;
 

@@ -9,7 +9,7 @@
   <link rel="icon" href="favicon.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
-  <link rel="stylesheet" href="style.css?v=7" />
+  <link rel="stylesheet" href="style.css?v=8" />
 </head>
 <body>
   <div class="page-shell">
@@ -21,11 +21,14 @@
           <p class="brand-sub">Turn any PDF into a knowledge graph and ask it questions, single or multi-hop.</p>
         </div>
       </div>
-      <div class="status-pills" id="status-pills">
-        <span class="pill" id="pill-graph"><span class="dot"></span>Graph: …</span>
-        <span class="pill" id="pill-extractor"><span class="dot"></span>Extractor: …</span>
-        <span class="pill" id="pill-llm"><span class="dot"></span>Answers: …</span>
-      </div>
+      <ol class="process" aria-label="How it works">
+        <li>Chunking</li>
+        <li>Entity extraction</li>
+        <li>Nodes &amp; edges</li>
+        <li>Graph retrieval</li>
+        <li>Answer</li>
+      </ol>
+      <span class="pill err hidden" id="service-status"><span class="dot"></span>Service unavailable</span>
     </header>
 
     <main class="layout">
@@ -43,7 +46,7 @@
             <input id="pdf-file" name="file" type="file" accept=".pdf" required />
             <svg class="upload-icon" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
             <span class="upload-title" id="upload-title">Drop a PDF or click to choose</span>
-            <span class="upload-subtitle" id="upload-subtitle">Text is chunked, entities and relations are extracted with spaCy, and everything is stored as a graph.</span>
+            <span class="upload-subtitle" id="upload-subtitle">Text is chunked, entities and relations are extracted, and everything is stored as a graph.</span>
           </label>
           <button id="upload-button" class="primary-button" type="submit">Build knowledge graph</button>
         </form>
@@ -52,7 +55,7 @@
           <li data-step="read">Reading PDF text</li>
           <li data-step="chunk">Chunking into passages</li>
           <li data-step="extract">Extracting entities &amp; relations</li>
-          <li data-step="store">Storing graph + embeddings</li>
+          <li data-step="store">Building nodes &amp; edges</li>
         </ol>
 
         <div id="upload-status" class="status-box muted">No PDF uploaded yet.</div>
@@ -132,6 +135,6 @@
   </div>
 
   <script src="config.js?v=5"></script>
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>

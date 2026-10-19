@@ -80,7 +80,20 @@ body {
 }
 .brand-sub { margin: 2px 0 0; color: var(--text-2); font-size: 13.5px; }
 
-.status-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+.process {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin: 0; padding: 0; list-style: none;
+  font-size: 12.5px; font-weight: 500; color: var(--text-2);
+}
+.process li {
+  position: relative;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+.process li + li { margin-left: 16px; }
+.process li + li::before { content: "→"; position: absolute; left: -17px; color: var(--accent); }
 
 .pill {
   display: inline-flex; align-items: center; gap: 7px;
