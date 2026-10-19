@@ -1,28 +1,28 @@
 :root {
-  /* Clean light theme: white paper + emerald. Fixed light so it looks the same on every system. */
+  /* Clean light theme: white paper + the KG logo teal. Fixed light so it looks the same on every system. */
   --bg: #ffffff;
-  --bg-accent: #f0f7f4;
+  --bg-accent: #eef6f9;
   --surface: #ffffff;
-  --surface-2: #f6faf8;
+  --surface-2: #f5f9fb;
   --border: #e2e8f0;
   --border-strong: #cbd5e1;
   --text: #0f172a;
   --text-2: #475569;
   --text-3: #94a3b8;
-  --accent: #047857;
-  --accent-hover: #065f46;
-  --accent-soft: #d1fae5;
+  --accent: #0b7595;
+  --accent-hover: #075d78;
+  --accent-soft: #ddf0f6;
   --accent-text: #ffffff;
   --ok: #10b981;
   --warn: #d97706;
   --err: #dc2626;
-  --hop0: #047857;
-  --hop1: #10b981;
-  --hop2: #0891b2;
+  --hop0: #0b7595;
+  --hop1: #3fa9c9;
+  --hop2: #1e4e79;
   --node: #cbd5e1;
   --edge: #e2e8f0;
   --code-bg: #0f172a;
-  --code-text: #d1fae5;
+  --code-text: #ddf0f6;
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.05);
   --radius: 18px;
   color-scheme: light;
@@ -34,8 +34,8 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(1200px 600px at 10% -10%, #ecfdf5 0%, transparent 60%),
-    radial-gradient(900px 500px at 110% 0%, #f0fdf9 0%, transparent 55%),
+    radial-gradient(1200px 600px at 10% -10%, #eaf5f9 0%, transparent 60%),
+    radial-gradient(900px 500px at 110% 0%, #f2f8fb 0%, transparent 55%),
     var(--bg);
   color: var(--text);
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -70,14 +70,7 @@ body {
 
 .brand { display: flex; align-items: center; gap: 14px; }
 
-.brand-mark {
-  width: 46px; height: 46px;
-  border-radius: 14px;
-  background: linear-gradient(145deg, #059669, var(--accent) 55%, #065f46);
-  box-shadow: 0 6px 16px rgba(4, 120, 87, 0.25);
-  display: grid; place-items: center;
-}
-.brand-mark svg { fill: var(--accent-text); stroke: var(--accent-text); stroke-width: 1.6; }
+.brand-mark { width: auto; height: 48px; display: block; }
 
 .brand h1 {
   margin: 0;
@@ -153,7 +146,7 @@ body {
   padding: 12px 18px;
   font-weight: 600;
 }
-.primary-button { box-shadow: 0 4px 12px rgba(4, 120, 87, 0.22); letter-spacing: 0.01em; }
+.primary-button { box-shadow: 0 4px 12px rgba(11, 117, 149, 0.22); letter-spacing: 0.01em; }
 .primary-button:hover:not(:disabled) { background: var(--accent-hover); }
 .primary-button:active:not(:disabled) { transform: translateY(1px); }
 .primary-button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -188,7 +181,7 @@ body {
   border: 1.5px dashed var(--border-strong);
   border-radius: 16px;
   background:
-    repeating-linear-gradient(135deg, transparent 0 12px, rgba(4, 120, 87, 0.03) 12px 24px),
+    repeating-linear-gradient(135deg, transparent 0 12px, rgba(11, 117, 149, 0.03) 12px 24px),
     var(--surface-2);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
@@ -270,8 +263,8 @@ body {
 .bubble-q {
   justify-self: end;
   max-width: 85%;
-  background: linear-gradient(145deg, #059669, var(--accent));
-  box-shadow: 0 4px 12px rgba(4, 120, 87, 0.18);
+  background: linear-gradient(145deg, #0e88ad, var(--accent));
+  box-shadow: 0 4px 12px rgba(11, 117, 149, 0.18);
   color: var(--accent-text);
   padding: 10px 14px;
   border-radius: 14px 14px 4px 14px;
@@ -374,7 +367,7 @@ details.evidence summary { cursor: pointer; color: var(--accent); font-weight: 5
   border-radius: 16px;
   border: 1px solid var(--border);
   background:
-    radial-gradient(circle at 1px 1px, rgba(4, 120, 87, 0.08) 1px, transparent 0) 0 0 / 22px 22px,
+    radial-gradient(circle at 1px 1px, rgba(11, 117, 149, 0.08) 1px, transparent 0) 0 0 / 22px 22px,
     var(--surface-2);
   overflow: hidden;
 }
@@ -383,9 +376,9 @@ details.evidence summary { cursor: pointer; color: var(--accent); font-weight: 5
 #graph-canvas line { stroke: var(--edge); stroke-width: 1.2; }
 #graph-canvas line.hl { stroke: var(--accent); stroke-width: 2.4; }
 #graph-canvas circle { fill: var(--node); stroke: var(--surface); stroke-width: 1.5; cursor: pointer; transition: r 0.15s; }
-#graph-canvas circle.tier-2 { fill: #a7f3d0; }
-#graph-canvas circle.tier-3 { fill: #6ee7b7; }
-#graph-canvas circle.tier-4 { fill: #34d399; }
+#graph-canvas circle.tier-2 { fill: #bfe3ee; }
+#graph-canvas circle.tier-3 { fill: #8ccbe0; }
+#graph-canvas circle.tier-4 { fill: #4fb0cf; }
 #graph-canvas circle:hover { stroke: var(--accent); stroke-width: 2.5; }
 #graph-canvas circle.anchor { fill: var(--hop0); }
 #graph-canvas circle.hop1 { fill: var(--hop1); }
