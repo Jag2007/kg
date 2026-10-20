@@ -1860,7 +1860,8 @@ def _evidence_facts(evidence: dict) -> list[str]:
     facts = []
     seen = set()
     for edge in typed[: MAX_FACTS * 2]:
-        fact = f"{edge['from']} -> {_relation_phrase(edge['relation'])} -> {edge['to']} (hop {edge['distance']})"
+        # Facts arrive ordered by hop; small models echo extra markers like "(hop 1)" into answers.
+        fact = f"{edge['from']} {_relation_phrase(edge['relation'])} {edge['to']}"
         if fact.lower() not in seen:
             seen.add(fact.lower())
             facts.append(fact)
@@ -2056,6 +2057,56 @@ def _overview_answer(question: str, document_id: str, response: dict) -> dict:
     return response
 
 
+DEFINITION_QUESTION = re.compile(r"^\s*(?:what|who)\s+(?:is|are|was|were)\b|^\s*(?:define|explain|meaning of)\b", re.I)
+LIST_MARKER = re.compile(r"^\s*(?:\d+(?:\.\d+)*\.?|[•➔\-*])\s*")
+CATEGORY_VERBS = r"(?:is|are|was|were|considered as|known as|called)"
+
+
+def _extractive_answer(question: str, passages: list[dict], graph_answer: str) -> str:
+    """Without a model, answer a "what is X" question with the PDF's own sentence about X.
+
+    Used only when a sentence clearly defines X ("X is ...", "X, or Y, is ..."), or when the
+    graph answer itself lists things that are an X and the PDF has the full sentences for them.
+    """
+    if not DEFINITION_QUESTION.search(question):
+        return ""
+    phrases = _extract_entity_phrases(question) or [" ".join(_extract_terms(question))]
+    phrase = re.escape(" ".join(phrases[0].lower().split()))
+    if not phrase:
+        return ""
+    defines_x = re.compile(
+        rf"^(?:(?:the|a|an)\s+)?(?:\w+\s+){{0,2}}?{phrase}s?\s*(?:,[^,.]{{1,60}},\s*)?"
+        r"(?:is|are|was|were|refers to|means|can be defined as)\b"
+    )
+    is_an_x = re.compile(rf"\b{CATEGORY_VERBS}\s+(?:(?:a|an|the)\s+)?(?:\w+\s+)?{phrase}\b")
+
+    mentions_x = re.compile(rf"\b{phrase}s?\b")
+
+    definitions, examples, mentions = [], [], []
+    for passage in passages[:3]:
+        sentences = [LIST_MARKER.sub("", sentence) for sentence in split_into_sentences(passage.get("text", ""))]
+        for index, sentence in enumerate(sentences):
+            lowered = sentence.lower()
+            if defines_x.search(lowered):
+                if len(sentence) < 50 and index + 1 < len(sentences):
+                    sentence += " " + sentences[index + 1]
+                definitions.append(sentence)
+            elif is_an_x.search(lowered):
+                examples.append(sentence)
+            elif mentions_x.search(lowered) and 30 <= len(sentence) <= 300:
+                mentions.append(sentence)
+
+    if definitions:
+        return definitions[0]
+    # "encoder is a electronic device; decoder is a electronic device" -> the PDF's full sentences.
+    if examples and is_an_x.search(graph_answer.lower()):
+        return " ".join(dict.fromkeys(examples[:2]))
+    # A raw page dump is never a good answer; one clean sentence about X is better.
+    if mentions and len(graph_answer) > 400:
+        return mentions[0]
+    return ""
+
+
 def ask_question(question: str, document_id: str) -> dict:
     """Rule-based graph answer, upgraded with multi-hop evidence and an optional local LLM."""
     response = _rule_based_answer(question, document_id)
@@ -2092,6 +2143,12 @@ def ask_question(question: str, document_id: str) -> dict:
             if chained:
                 answer = chained
                 answer_mode = "graph-chain"
+        # ...and the document's own sentence reads better than a list of triples.
+        if answer_mode == "rules" and answer.startswith("Based on the uploaded document:"):
+            extracted = _extractive_answer(question, passages, answer)
+            if extracted:
+                answer = extracted
+                answer_mode = "passage"
 
     if base_failed and answer_mode != "rules" and answer != answer_llm.NOT_FOUND_ANSWER:
         response["results"] = evidence["edges"][:10] or passages

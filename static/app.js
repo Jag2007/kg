@@ -191,7 +191,9 @@ uploadForm.addEventListener("submit", async (event) => {
 /* --------------------------------------------------------------------- ask */
 
 function modeBadge(mode) {
+  if (mode && mode.startsWith("llm:")) return `<span class="badge llm">written by ${escapeHtml(mode.slice(4))}</span>`;
   if (mode === "graph-chain") return `<span class="badge chain">multi-hop chain</span>`;
+  if (mode === "passage") return `<span class="badge">from the document</span>`;
   return `<span class="badge">from the graph</span>`;
 }
 

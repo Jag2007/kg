@@ -41,10 +41,12 @@ question ──► anchor entities ──► 1–3 hop expansion ──► graph
 3. Chunks that mention the reached entities are boosted. This surfaces *bridge* passages that
    share no words with the question.
 4. Passages are re-ranked at the sentence level with embeddings, question terms and graph entities.
-5. A local model (Ollama, default `qwen2.5:3b`) writes the answer only from those facts and
-   passages, and says *"It is not in the uploaded document"* otherwise.
+5. A model writes the answer only from those facts and passages, and says *"It is not in the
+   uploaded document"* otherwise: local Ollama (default `qwen2.5:3b`), or Groq
+   (`openai/gpt-oss-120b`) when Ollama isn't available.
 6. Without a model, multi-hop questions get a direction-aware chain built from typed relations,
-   for example: *"Arjun Mehta works at Helix Labs. Maya Rao founded Helix Labs."*
+   for example: *"Arjun Mehta works at Helix Labs. Maya Rao founded Helix Labs."* Other
+   questions are answered with the PDF's own best-matching sentence.
 
 Each answer shows how it was produced: the anchor entities, the graph facts with their hop
 distance, and the source passages. The graph view highlights the path that was used.
@@ -78,7 +80,8 @@ Open <http://127.0.0.1:8000>. API docs are at `/docs`.
 
 Neo4j and Ollama are both optional:
 - If Neo4j isn't reachable, the app uses the embedded JSON graph store.
-- If Ollama isn't running, answers are rule-based.
+- If Ollama isn't running, Groq writes the answers when `GROQ_API_KEY` is set; otherwise they
+  come straight from the graph and the PDF's sentences.
 
 `GET /health` shows which of them are live.
 
@@ -92,8 +95,9 @@ on the host.
 | `KG_GRAPH_BACKEND` | `auto` | `auto` (Neo4j if reachable, else embedded) · `neo4j` · `embedded` |
 | `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | `bolt://localhost:7687` | Neo4j connection |
 | `KG_EXTRACTOR` | `spacy` | `spacy` (local) · `llm` (OpenAI-compatible endpoint) · `hybrid` |
-| `KG_ANSWER_LLM` | `auto` | `auto`/`ollama` · `openai` · `none` |
+| `KG_ANSWER_LLM` | `auto` | `auto` (Ollama if running, else Groq if `GROQ_API_KEY` is set) · `ollama` · `groq` · `openai` · `none` |
 | `OLLAMA_MODEL` | `qwen2.5:3b` | Any Ollama model. `mistral` is more accurate if you have the RAM |
+| `GROQ_API_KEY` / `GROQ_ANSWER_MODEL` | `openai/gpt-oss-120b` | Hosted answer writer for `groq` (and `auto` without Ollama) |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_ANSWER_MODEL` | | For `KG_ANSWER_LLM=openai` or `KG_EXTRACTOR=llm` |
 | `KG_EMBEDDING_BACKEND` | `auto` | `auto` (bge-small) · `local` (hash embeddings, no download) |
 | `KG_STATE_DIR` | `kg_app/state` | Where chunk/graph JSON state is written |
@@ -110,18 +114,15 @@ on the host.
 
 ## Deploy (Render)
 
-Step-by-step instructions, including the optional Vercel + Render split, are in [DEPLOY.md](DEPLOY.md).
-
-
 `render.yaml` deploys the app as a free web service:
 - graph: embedded store
 - embeddings: hash
-- answers: rule-based
+- answers: written by Groq (`openai/gpt-oss-120b`) from the graph evidence. Paste `GROQ_API_KEY`
+  in the Render dashboard; without it the answer is the PDF's best-matching sentence.
 
-To get model-written answers on Render, set `KG_ANSWER_LLM=openai` together with
-`OPENAI_API_KEY`, `OPENAI_BASE_URL` and `OPENAI_ANSWER_MODEL`. Any OpenAI-compatible provider
-works. To keep the graph across deploys, point `NEO4J_URI` at a hosted Neo4j and set
-`KG_GRAPH_BACKEND=auto`.
+Any other OpenAI-compatible provider works with `KG_ANSWER_LLM=openai` plus `OPENAI_API_KEY`,
+`OPENAI_BASE_URL` and `OPENAI_ANSWER_MODEL`. To keep the graph across deploys, point `NEO4J_URI`
+at a hosted Neo4j and set `KG_GRAPH_BACKEND=auto`.
 
 ## Tests
 

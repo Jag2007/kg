@@ -18,10 +18,14 @@ services:
       # Hash embeddings keep the free instance under its memory limit.
       - key: KG_EMBEDDING_BACKEND
         value: local
-      # No local model on Render. Use "openai" + OPENAI_API_KEY / OPENAI_BASE_URL for an
-      # OpenAI-compatible answer writer, or leave "none" for rule-based answers.
+      # No local model fits on Render, so answers are written by Groq (paste GROQ_API_KEY in the
+      # dashboard). Without a key the app answers with the PDF's own best-matching sentences.
       - key: KG_ANSWER_LLM
-        value: none
+        value: groq
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_ANSWER_MODEL
+        value: openai/gpt-oss-120b
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_BASE_URL
